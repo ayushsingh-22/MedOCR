@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedOCR — Handwritten Test List to Google Sheets</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- Background Orbs -->
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🏥</span>
+        <span class="logo-text">MedOCR</span>
+      </div>
+      <div class="header-subtitle">Handwritten Lab Records → Google Sheets</div>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ── Step 1: Settings ────────────────────────────────────── -->
+    <section class="card" id="stepSettings">
+      <div class="card-header">
+        <span class="step-badge">1</span>
+        <div>
+          <h2>Settings</h2>
+          <p class="card-desc">Configure your API key and Google account</p>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <!-- Gemini API Key -->
+        <div class="field-group">
+          <label for="geminiApiKey" class="field-label">
+            <span class="label-icon">🔑</span> Gemini API Key
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" class="get-key-link">Get key →</a>
+          </label>
+          <div class="input-wrapper">
+            <input
+              type="password"
+              id="geminiApiKey"
+              class="text-input"
+              placeholder="AIza..."
+              autocomplete="off"
+            />
+            <button class="icon-btn" id="toggleApiKey" title="Show/Hide key">👁</button>
+          </div>
+        </div>
+
+        <!-- Google Sheets -->
+        <div class="field-group">
+          <label for="sheetId" class="field-label">
+            <span class="label-icon">📊</span> Google Sheet ID
+          </label>
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="sheetId"
+              class="text-input"
+              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+            />
+          </div>
+          <p class="field-hint">Found in the URL: docs.google.com/spreadsheets/d/<strong>[ID]</strong>/edit</p>
+        </div>
+
+        <!-- Sheet Name -->
+        <div class="field-group">
+          <label for="sheetName" class="field-label">
+            <span class="label-icon">📋</span> Sheet Tab Name
+          </label>
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="sheetName"
+              class="text-input"
+              placeholder="Sheet1"
+              value="Sheet1"
+            />
+          </div>
+        </div>
+
+        <!-- Google Auth -->
+        <div class="field-group">
+          <label class="field-label">
+            <span class="label-icon">🔐</span> Google Account
+          </label>
+          <div class="auth-row">
+            <div id="authChip" class="auth-chip auth-chip--unknown">
+              <span class="chip-dot"></span>
+              <span id="authChipText">Checking...</span>
+            </div>
+            <button class="btn btn-secondary" id="btnGoogleAuth" onclick="handleGoogleAuth()">
+              Connect Account
+            </button>
+            <button class="btn btn-ghost" id="btnLogout" onclick="handleLogout()" style="display:none">
+              Disconnect
+            </button>
+          </div>
+          <p class="field-hint" id="credsHint" style="display:none;color:#f59e0b">
+            ⚠️ <code>credentials.json</code> not found in the app folder. 
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Download from Google Cloud Console</a>
+            and place it next to <code>app.py</code>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Step 2: Upload ──────────────────────────────────────── -->
+    <section class="card" id="stepUpload">
+      <div class="card-header">
+        <span class="step-badge">2</span>
+        <div>
+          <h2>Upload Image</h2>
+          <p class="card-desc">Photo of handwritten medical test list</p>
+        </div>
+      </div>
+
+      <div class="upload-zone" id="uploadZone"
+           ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+           onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon">📷</div>
+        <div class="upload-title">Drop image here or click to browse</div>
+        <div class="upload-sub">PNG, JPEG, WEBP · Max 16 MB</div>
+        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleFileSelect(event)" />
+      </div>
+
+      <div id="previewSection" style="display:none" class="preview-section">
+        <img id="previewImg" class="preview-img" alt="Uploaded image preview" />
+        <div class="preview-info">
+          <span id="previewFileName" class="preview-filename"></span>
+          <button class="btn btn-ghost btn-sm" onclick="clearUpload()">✕ Remove</button>
+        </div>
+        <button class="btn btn-primary" id="btnAnalyse" onclick="analyseImage()">
+          <span class="btn-icon">🔍</span> Analyse with Gemini AI
+        </button>
+      </div>
+    </section>
+
+    <!-- ── Step 3: Review & Edit ───────────────────────────────── -->
+    <section class="card" id="stepReview" style="display:none">
+      <div class="card-header">
+        <span class="step-badge">3</span>
+        <div>
+          <h2>Review & Edit</h2>
+          <p class="card-desc">Correct any OCR errors before appending</p>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="addRow()">+ Add Row</button>
+        </div>
+      </div>
+
+      <!-- Date Row -->
+      <div class="date-row">
+        <label class="field-label" style="margin-bottom:0">📅 Date</label>
+        <input type="text" id="extractedDate" class="text-input date-input" placeholder="e.g. 7/3/2026" />
+        <span id="formattedDatePreview" class="date-preview"></span>
+        <span id="dateConfidenceBadge" class="conf-badge"></span>
+      </div>
+
+      <!-- Review Table -->
+      <div class="table-wrapper">
+        <table class="review-table" id="reviewTable">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th class="col-name">Name <span class="th-hint">(Age/Gender auto-combined)</span></th>
+              <th class="col-age">Age</th>
+              <th class="col-gender">Gen</th>
+              <th class="col-tests">Tests</th>
+              <th class="col-amount">Amount</th>
+              <th class="col-crossed">❌ Skip</th>
+              <th class="col-del"></th>
+            </tr>
+          </thead>
+          <tbody id="reviewTableBody">
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Legend -->
+      <div class="legend-row">
+        <span class="legend-item"><span class="legend-dot dot-amber"></span> Low confidence</span>
+        <span class="legend-item"><span class="legend-dot dot-red"></span> Invalid value</span>
+        <span class="legend-item"><span class="legend-dot dot-cross"></span> Crossed-out (will be skipped)</span>
+      </div>
+
+      <!-- Append Button -->
+      <div class="append-section">
+        <button class="btn btn-success btn-lg" id="btnAppend" onclick="appendToSheet()">
+          <span class="btn-icon">📤</span> Append to Google Sheet
+        </button>
+        <p class="append-hint">Only non-skipped rows will be appended</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast toast-hidden">
+    <span id="toastIcon"></span>
+    <span id="toastMessage"></span>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <div id="loadingText" class="loading-text">Analysing image with Gemini AI...</div>
+      <div class="loading-sub">This may take 10–20 seconds</div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
