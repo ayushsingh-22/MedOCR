@@ -36,6 +36,13 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/health")
+def health():
+    """Lightweight keep-alive endpoint. Ping this every ~10 min to prevent
+    Render free-tier spin-down (e.g. via cron-job.org or UptimeRobot)."""
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/api/auth/status")
 def auth_status():
     """Check if Google OAuth token exists and is valid."""
