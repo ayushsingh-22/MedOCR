@@ -41,9 +41,12 @@ def auth_status():
     """Check if Google OAuth token exists and is valid."""
     authenticated = sw.is_authenticated()
     has_creds_file = os.path.exists(sw.CREDENTIALS_PATH)
+    gemini_env_key = os.environ.get("GEMINI_API_KEY", "")
+    has_server_gemini_key = bool(gemini_env_key and gemini_env_key != "your_gemini_api_key_here")
     return jsonify({
         "authenticated": authenticated,
-        "has_credentials_file": has_creds_file
+        "has_credentials_file": has_creds_file,
+        "has_server_gemini_key": has_server_gemini_key
     })
 
 

@@ -18,6 +18,13 @@ async function checkAuthStatus() {
     const btnAuth = document.getElementById('btnGoogleAuth');
     const btnLogout = document.getElementById('btnLogout');
     const credsHint = document.getElementById('credsHint');
+    const serverKeyHint = document.getElementById('serverKeyHint');
+
+    // Show server key hint if env key is configured and user hasn't entered one
+    if (serverKeyHint) {
+      const userKey = document.getElementById('geminiApiKey').value.trim();
+      serverKeyHint.style.display = (data.has_server_gemini_key && !userKey) ? 'block' : 'none';
+    }
 
     if (!data.has_credentials_file) {
       chip.className = 'auth-chip auth-chip--disconnected';
@@ -81,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auto-save settings to localStorage
   document.getElementById('geminiApiKey').addEventListener('change', e => {
     localStorage.setItem('medocr_api_key', e.target.value);
+    // Refresh server-key hint visibility when user types a key
+    checkAuthStatus();
   });
   document.getElementById('sheetId').addEventListener('change', e => {
     localStorage.setItem('medocr_sheet_id', e.target.value);
@@ -135,11 +144,7 @@ function clearUpload() {
 // ── Analyse ──────────────────────────────────────────────────────────────────
 async function analyseImage() {
   const apiKey = document.getElementById('geminiApiKey').value.trim();
-  if (!apiKey) {
-    showToast('⚠️ Please enter your Gemini API key first', 'error');
-    document.getElementById('geminiApiKey').focus();
-    return;
-  }
+  // No frontend block — backend falls back to GEMINI_API_KEY env var if field is empty
   if (!selectedFile) {
     showToast('⚠️ No image selected', 'error');
     return;
