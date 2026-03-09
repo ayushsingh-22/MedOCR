@@ -203,7 +203,9 @@ def append_patient_rows(
             except (ValueError, TypeError):
                 amount_col = amount_val or ""
             
-            date_col = formatted_date if i == 0 else ""
+            # Prefix with apostrophe so Google Sheets stores it as plain text
+            # instead of converting "5 Mar 2026" to a numeric date serial (e.g. 46088)
+            date_col = ("'" + formatted_date) if (i == 0 and formatted_date) else ""
             
             rows.append([date_col, name_col, tests_col, amount_col])
         
