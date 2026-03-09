@@ -186,38 +186,10 @@
           <h2>Review & Edit</h2>
           <p class="card-desc">Correct any OCR errors before appending</p>
         </div>
-        <div class="card-actions">
-          <button class="btn btn-ghost btn-sm" onclick="addRow()">+ Add Row</button>
-        </div>
       </div>
 
-      <!-- Date Row -->
-      <div class="date-row">
-        <label class="field-label" style="margin-bottom:0">📅 Date</label>
-        <input type="text" id="extractedDate" class="text-input date-input" placeholder="e.g. 7/3/2026" />
-        <span id="formattedDatePreview" class="date-preview"></span>
-        <span id="dateConfidenceBadge" class="conf-badge"></span>
-      </div>
-
-      <!-- Review Table -->
-      <div class="table-wrapper">
-        <table class="review-table" id="reviewTable">
-          <thead>
-            <tr>
-              <th class="col-num">#</th>
-              <th class="col-name">Name <span class="th-hint">(Age/Gender auto-combined)</span></th>
-              <th class="col-age">Age</th>
-              <th class="col-gender">Gen</th>
-              <th class="col-tests">Tests</th>
-              <th class="col-amount">Amount</th>
-              <th class="col-crossed">❌ Skip</th>
-              <th class="col-del"></th>
-            </tr>
-          </thead>
-          <tbody id="reviewTableBody">
-          </tbody>
-        </table>
-      </div>
+      <!-- Date-grouped tables rendered by JS -->
+      <div id="dateGroupsContainer"></div>
 
       <!-- Legend -->
       <div class="legend-row">

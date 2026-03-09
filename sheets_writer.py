@@ -159,16 +159,40 @@ def ensure_header_row(service, spreadsheet_id: str, sheet_name: str = "Sheet1"):
         # If row 1 exists but is wrong, we don't overwrite — just proceed
 
 
+def parse_date_for_sort(date_str: str):
+    """
+    Parse a date string like '7/3/2026' or '07-03-2026' into a datetime for sorting.
+    Returns datetime or datetime.max if parsing fails (sort to end).
+    """
+    if not date_str:
+        return datetime.max
+    
+    parts = date_str.replace("-", "/").split("/")
+    try:
+        day = int(parts[0])
+        month = int(parts[1])
+        year_raw = int(parts[2]) if len(parts) > 2 else datetime.now().year
+        year = year_raw if year_raw > 100 else 2000 + year_raw
+        return datetime(year, month, day)
+    except (ValueError, IndexError):
+        return datetime.max
+
+
 def append_patient_rows(
     spreadsheet_id: str,
     date_str: str,
     patients: list,
-    sheet_name: str = "Sheet1"
+    sheet_name: str = "Sheet1",
+    date_groups: list = None
 ) -> dict:
     """
     Append formatted patient rows to the Google Sheet.
     
-    patients: list of dicts with keys: name, age, gender, tests, amount
+    Supports two modes:
+    1. date_groups: list of {date, patients} — multiple date groups, sorted by earliest first   
+    2. Legacy: single date_str + patients list
+    
+    Inserts a blank row before each date group for visual separation.
     
     Format:
     - First patient in group: [formatted_date, "NAME AGE/GENDER", tests, amount]
@@ -185,31 +209,51 @@ def append_patient_rows(
         
         ensure_header_row(service, spreadsheet_id, sheet_name)
         
-        formatted_date = format_date(date_str)
+        # Build date groups list
+        if date_groups and len(date_groups) > 0:
+            groups = date_groups
+        else:
+            # Legacy single-date mode — wrap in a group
+            groups = [{"date": date_str, "patients": patients}]
+        
+        # Sort groups by date (earliest first)
+        groups.sort(key=lambda g: parse_date_for_sort(g.get("date", "")))
+        
         rows = []
         
-        for i, patient in enumerate(patients):
-            name_col = format_name_age_gender(
-                patient.get("name", ""),
-                patient.get("age", ""),
-                patient.get("gender", "")
-            )
-            tests_col = (patient.get("tests") or "").strip()
-            amount_val = patient.get("amount")
+        for group_idx, group in enumerate(groups):
+            group_date = group.get("date", "")
+            group_patients = group.get("patients", [])
             
-            # Amount: use numeric value for Sheets (not string)
-            try:
-                amount_col = int(amount_val) if amount_val is not None else ""
-            except (ValueError, TypeError):
-                amount_col = amount_val or ""
+            if not group_patients:
+                continue
             
-            # Prefix with apostrophe so Google Sheets stores it as plain text
-            # instead of converting "5 Mar 2026" to a numeric date serial (e.g. 46088)
-            date_col = ("'" + formatted_date) if (i == 0 and formatted_date) else ""
+            formatted_date = format_date(group_date)
             
-            rows.append([date_col, name_col, tests_col, amount_col])
+            # Insert a blank separator row before each date group
+            rows.append(["", "", "", ""])
+            
+            for i, patient in enumerate(group_patients):
+                name_col = format_name_age_gender(
+                    patient.get("name", ""),
+                    patient.get("age", ""),
+                    patient.get("gender", "")
+                )
+                tests_col = (patient.get("tests") or "").strip()
+                amount_val = patient.get("amount")
+                
+                # Amount: use numeric value for Sheets (not string)
+                try:
+                    amount_col = int(amount_val) if amount_val is not None else ""
+                except (ValueError, TypeError):
+                    amount_col = amount_val or ""
+                
+                # Prefix with apostrophe so Google Sheets stores it as plain text
+                date_col = ("'" + formatted_date) if (i == 0 and formatted_date) else ""
+                
+                rows.append([date_col, name_col, tests_col, amount_col])
         
-        if not rows:
+        if not rows or all(r == ["", "", "", ""] for r in rows):
             return {"success": False, "rows_added": 0, "error": "No patient rows to append."}
         
         # Find the next empty row

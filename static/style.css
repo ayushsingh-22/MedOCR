@@ -590,6 +590,15 @@ body {
 }
 
 /* ── Review Section ──────────────────────────── */
+.date-group {
+  margin-bottom: 24px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.date-group:last-child { margin-bottom: 12px; }
+.date-group-header { margin-bottom: 12px; }
 .date-row {
   display: flex;
   align-items: center;

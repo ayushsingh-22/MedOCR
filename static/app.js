@@ -243,9 +243,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('sheetName').addEventListener('change', e => {
     localStorage.setItem('medocr_sheet_name', e.target.value);
   });
-
-  // Date field: update preview on change
-  document.getElementById('extractedDate').addEventListener('input', updateDatePreview);
 });
 
 // ── File Upload (multi-image) ────────────────────────────────────────────────
@@ -337,11 +334,10 @@ async function analyseImages() {
   }
 
   const total = selectedFiles.length;
-  let allPatients = [];
-  let firstDate = '';
-  let firstDateConf = 0;
+  let allDateGroups = []; // Accumulate date_groups from all images
   let successCount = 0;
   let errorCount = 0;
+  let totalPatients = 0;
 
   // Show progress UI
   showBatchProgress(0, total, 'Starting analysis...');
@@ -364,19 +360,18 @@ async function analyseImages() {
         continue;
       }
 
-      // Use date from first successful image
-      if (!firstDate && data.date) {
-        firstDate = data.date;
-        firstDateConf = data.date_confidence || 0;
+      // Collect date groups from this image
+      if (data.date_groups && data.date_groups.length > 0) {
+        allDateGroups = allDateGroups.concat(data.date_groups);
+      } else {
+        // Legacy fallback: wrap in a single group
+        allDateGroups.push({
+          date: data.date || '',
+          date_confidence: data.date_confidence || 0,
+          patients: data.patients || []
+        });
       }
-
-      // Collect patients with re-numbered serials
-      const patients = (data.patients || []).map((p, pIdx) => ({
-        ...p,
-        serial: allPatients.length + pIdx + 1,
-        _source: file.name
-      }));
-      allPatients = allPatients.concat(patients);
+      totalPatients += (data.patients || []).length;
       successCount++;
     } catch (err) {
       errorCount++;
@@ -387,19 +382,15 @@ async function analyseImages() {
   // Done — hide progress
   hideBatchProgress();
 
-  if (allPatients.length === 0) {
+  if (totalPatients === 0) {
     showToast('❌ No patient data extracted from any image', 'error');
     return;
   }
 
-  // Populate review with merged results
-  populateReviewSection({
-    date: firstDate,
-    date_confidence: firstDateConf,
-    patients: allPatients
-  });
+  // Populate review with merged date groups
+  populateReviewSection({ date_groups: allDateGroups });
 
-  const msg = `✅ Extracted ${allPatients.length} patients from ${successCount} image${successCount !== 1 ? 's' : ''}`;
+  const msg = `✅ Extracted ${totalPatients} patients from ${successCount} image${successCount !== 1 ? 's' : ''}`;
   showToast(errorCount ? `${msg} (${errorCount} failed)` : msg, 'success');
 }
 
@@ -433,76 +424,138 @@ function hideBatchProgress() {
   document.getElementById('btnAnalyse').disabled = false;
 }
 
-// ── Review Section ───────────────────────────────────────────────────────────
-function populateReviewSection(data) {
-  // Date
-  const dateInput = document.getElementById('extractedDate');
-  dateInput.value = data.date || '';
-  const dateConf = data.date_confidence || 0;
-  const confBadge = document.getElementById('dateConfidenceBadge');
-  confBadge.textContent = `${Math.round(dateConf * 100)}% confidence`;
-  confBadge.className = 'conf-badge ' + confidenceClass(dateConf);
-  updateDatePreview();
+// ── Review Section (date-grouped) ────────────────────────────────────────────
+let currentDateGroups = []; // Array of { date, date_confidence, patients[] }
 
-  // Patients
-  currentPatients = data.patients || [];
-  renderTable();
+function populateReviewSection(data) {
+  // Build date groups from response
+  if (data.date_groups && data.date_groups.length > 0) {
+    currentDateGroups = data.date_groups.map(g => ({
+      date: g.date || '',
+      date_confidence: g.date_confidence || 0,
+      patients: g.patients || []
+    }));
+  } else {
+    // Legacy: single date + flat patients
+    currentDateGroups = [{
+      date: data.date || '',
+      date_confidence: data.date_confidence || 0,
+      patients: data.patients || []
+    }];
+  }
+
+  renderDateGroups();
 
   // Show review section
   document.getElementById('stepReview').style.display = '';
   document.getElementById('stepReview').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function renderTable() {
-  const tbody = document.getElementById('reviewTableBody');
+function renderDateGroups() {
+  const container = document.getElementById('dateGroupsContainer');
+  container.innerHTML = '';
+
+  currentDateGroups.forEach((group, gIdx) => {
+    const section = document.createElement('div');
+    section.className = 'date-group';
+    section.id = `date-group-${gIdx}`;
+
+    const dateConf = group.date_confidence || 0;
+    const confCls = confidenceClass(dateConf);
+
+    section.innerHTML = `
+      <div class="date-group-header">
+        <div class="date-row">
+          <label class="field-label" style="margin-bottom:0">📅 Date ${currentDateGroups.length > 1 ? (gIdx + 1) : ''}</label>
+          <input type="text" class="text-input date-input" id="groupDate-${gIdx}"
+                 value="${esc(group.date)}" placeholder="e.g. 7/3/2026"
+                 oninput="updateGroupDate(${gIdx}, this.value)" />
+          <span class="conf-badge ${confCls}">${Math.round(dateConf * 100)}%</span>
+          ${currentDateGroups.length > 1 ? `<button class="btn btn-ghost btn-sm" onclick="removeGroup(${gIdx})" title="Remove group">✕</button>` : ''}
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="review-table">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th class="col-name">Name</th>
+              <th class="col-age">Age</th>
+              <th class="col-gender">Gen</th>
+              <th class="col-tests">Tests</th>
+              <th class="col-amount">Amt</th>
+              <th class="col-crossed">Skip</th>
+              <th class="col-del"></th>
+            </tr>
+          </thead>
+          <tbody id="groupBody-${gIdx}">
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" onclick="addRowToGroup(${gIdx})">+ Add Row</button>
+      </div>
+    `;
+
+    container.appendChild(section);
+
+    // Render patients for this group
+    renderGroupTable(gIdx);
+  });
+}
+
+function renderGroupTable(gIdx) {
+  const group = currentDateGroups[gIdx];
+  const tbody = document.getElementById(`groupBody-${gIdx}`);
+  if (!tbody) return;
   tbody.innerHTML = '';
 
-  currentPatients.forEach((p, idx) => {
+  group.patients.forEach((p, pIdx) => {
     const row = document.createElement('tr');
-    row.id = `row-${idx}`;
+    row.id = `row-${gIdx}-${pIdx}`;
     if (p.crossed_out) row.classList.add('crossed-row');
 
     const conf = p.confidence || {};
 
     row.innerHTML = `
-      <td class="col-num">${p.serial || idx + 1}</td>
+      <td class="col-num">${p.serial || pIdx + 1}</td>
       <td class="col-name">
         <input class="cell-input ${confClass(conf.name)}" 
                value="${esc(p.name)}" 
-               oninput="updatePatient(${idx}, 'name', this.value)"
+               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'name', this.value)"
                placeholder="Patient name" />
       </td>
       <td class="col-age">
         <input class="cell-input ${confClass(conf.age)}"
                value="${esc(p.age)}"
-               oninput="updatePatient(${idx}, 'age', this.value)"
+               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'age', this.value)"
                placeholder="Age" style="width:100%" />
       </td>
       <td class="col-gender">
-        <select class="cell-select" onchange="updatePatient(${idx}, 'gender', this.value)">
+        <select class="cell-select" onchange="updateGroupPatient(${gIdx}, ${pIdx}, 'gender', this.value)">
           ${['M','F','H',''].map(g => `<option value="${g}" ${p.gender === g ? 'selected' : ''}>${g || '–'}</option>`).join('')}
         </select>
       </td>
       <td class="col-tests">
         <input class="cell-input ${confClass(conf.tests)}"
                value="${esc(p.tests)}"
-               oninput="updatePatient(${idx}, 'tests', this.value)"
+               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'tests', this.value)"
                placeholder="CBC, TSH, LFT..." />
       </td>
       <td class="col-amount">
         <input class="cell-input ${confClass(conf.amount)}"
-               id="amt-${idx}"
+               id="amt-${gIdx}-${pIdx}"
                value="${p.amount != null ? p.amount : ''}"
-               oninput="updateAmount(${idx}, this)"
+               oninput="updateGroupAmount(${gIdx}, ${pIdx}, this)"
                placeholder="Amt" />
       </td>
       <td class="col-crossed" style="text-align:center">
         <input type="checkbox" class="skip-toggle" title="Skip this entry"
                ${p.crossed_out ? 'checked' : ''}
-               onchange="toggleCrossedOut(${idx}, this.checked)" />
+               onchange="toggleGroupCrossedOut(${gIdx}, ${pIdx}, this.checked)" />
       </td>
       <td class="col-del">
-        <button class="del-btn" title="Delete row" onclick="deleteRow(${idx})">🗑</button>
+        <button class="del-btn" title="Delete row" onclick="deleteGroupRow(${gIdx}, ${pIdx})">🗑</button>
       </td>
     `;
     tbody.appendChild(row);
@@ -522,13 +575,17 @@ function confidenceClass(val) {
   return 'low';
 }
 
-function updatePatient(idx, field, value) {
-  currentPatients[idx][field] = value;
+function updateGroupDate(gIdx, value) {
+  currentDateGroups[gIdx].date = value;
 }
 
-function updateAmount(idx, input) {
+function updateGroupPatient(gIdx, pIdx, field, value) {
+  currentDateGroups[gIdx].patients[pIdx][field] = value;
+}
+
+function updateGroupAmount(gIdx, pIdx, input) {
   const val = input.value.trim();
-  currentPatients[idx].amount = val === '' ? null : val;
+  currentDateGroups[gIdx].patients[pIdx].amount = val === '' ? null : val;
   if (val !== '' && isNaN(Number(val))) {
     input.classList.add('invalid');
     input.classList.remove('low-conf');
@@ -537,72 +594,80 @@ function updateAmount(idx, input) {
   }
 }
 
-function toggleCrossedOut(idx, checked) {
-  currentPatients[idx].crossed_out = checked;
-  const row = document.getElementById(`row-${idx}`);
-  row.classList.toggle('crossed-row', checked);
+function toggleGroupCrossedOut(gIdx, pIdx, checked) {
+  currentDateGroups[gIdx].patients[pIdx].crossed_out = checked;
+  const row = document.getElementById(`row-${gIdx}-${pIdx}`);
+  if (row) row.classList.toggle('crossed-row', checked);
 }
 
-function deleteRow(idx) {
-  currentPatients.splice(idx, 1);
-  renderTable();
+function deleteGroupRow(gIdx, pIdx) {
+  currentDateGroups[gIdx].patients.splice(pIdx, 1);
+  // Remove group if empty
+  if (currentDateGroups[gIdx].patients.length === 0 && currentDateGroups.length > 1) {
+    currentDateGroups.splice(gIdx, 1);
+    renderDateGroups();
+  } else {
+    renderGroupTable(gIdx);
+  }
 }
 
-function addRow() {
-  currentPatients.push({
-    serial: currentPatients.length + 1,
+function addRowToGroup(gIdx) {
+  const group = currentDateGroups[gIdx];
+  group.patients.push({
+    serial: group.patients.length + 1,
     name: '', age: '', gender: 'M',
     tests: '', amount: null,
     crossed_out: false,
     confidence: { name: 1, age: 1, gender: 1, tests: 1, amount: 1 }
   });
-  renderTable();
-  // Focus new row name field
+  renderGroupTable(gIdx);
   setTimeout(() => {
-    const rows = document.querySelectorAll('#reviewTableBody tr');
+    const tbody = document.getElementById(`groupBody-${gIdx}`);
+    const rows = tbody ? tbody.querySelectorAll('tr') : [];
     const lastRow = rows[rows.length - 1];
     if (lastRow) lastRow.querySelector('.cell-input')?.focus();
   }, 50);
 }
 
-// ── Date Preview ─────────────────────────────────────────────────────────────
-async function updateDatePreview() {
-  const raw = document.getElementById('extractedDate').value.trim();
-  if (!raw) {
-    document.getElementById('formattedDatePreview').textContent = '';
-    return;
-  }
-  try {
-    const res = await fetch('/api/format-date', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: raw })
+function removeGroup(gIdx) {
+  if (currentDateGroups.length <= 1) return;
+  currentDateGroups.splice(gIdx, 1);
+  renderDateGroups();
+}
+
+// Legacy compat — keep addRow working from the HTML header button
+function addRow() {
+  if (currentDateGroups.length === 0) {
+    currentDateGroups.push({
+      date: '', date_confidence: 0, patients: []
     });
-    const data = await res.json();
-    document.getElementById('formattedDatePreview').textContent = '→ ' + data.formatted;
-  } catch (e) {
-    document.getElementById('formattedDatePreview').textContent = '';
+    renderDateGroups();
   }
+  addRowToGroup(currentDateGroups.length - 1);
 }
 
 // ── Append to Sheets ─────────────────────────────────────────────────────────
 async function appendToSheet() {
   const sheetId = document.getElementById('sheetId').value.trim();
   const sheetName = document.getElementById('sheetName').value.trim() || 'Sheet1';
-  const date = document.getElementById('extractedDate').value.trim();
 
   if (!sheetId) {
     showToast('⚠️ Please enter the Google Sheet ID', 'error');
     document.getElementById('sheetId').focus();
     return;
   }
-  if (!date) {
-    showToast('⚠️ Date is empty — please fill it in', 'error');
-    document.getElementById('extractedDate').focus();
-    return;
+
+  // Validate all groups have dates
+  for (let i = 0; i < currentDateGroups.length; i++) {
+    if (!currentDateGroups[i].date.trim()) {
+      showToast(`⚠️ Date ${i + 1} is empty — please fill it in`, 'error');
+      const dateInput = document.getElementById(`groupDate-${i}`);
+      if (dateInput) dateInput.focus();
+      return;
+    }
   }
 
-  // Validate amounts
+  // Validate amounts across all groups
   const amtInputs = document.querySelectorAll('[id^="amt-"]');
   let hasInvalid = false;
   amtInputs.forEach(input => {
@@ -616,21 +681,26 @@ async function appendToSheet() {
     return;
   }
 
-  // Filter: only non-crossed-out patients
-  const toAppend = currentPatients.filter(p => !p.crossed_out);
-  if (toAppend.length === 0) {
+  // Build date_groups for API, filtering out crossed-out patients
+  const dateGroups = currentDateGroups
+    .map(g => ({
+      date: g.date,
+      patients: g.patients
+        .filter(p => !p.crossed_out)
+        .map(p => ({
+          name: p.name,
+          age: p.age,
+          gender: p.gender,
+          tests: p.tests,
+          amount: p.amount !== null && p.amount !== '' ? Number(p.amount) : null
+        }))
+    }))
+    .filter(g => g.patients.length > 0);
+
+  if (dateGroups.length === 0) {
     showToast('⚠️ All entries are marked as skipped — nothing to append', 'error');
     return;
   }
-
-  // Normalize amounts
-  const patients = toAppend.map(p => ({
-    name: p.name,
-    age: p.age,
-    gender: p.gender,
-    tests: p.tests,
-    amount: p.amount !== null && p.amount !== '' ? Number(p.amount) : null
-  }));
 
   showLoading('Appending to Google Sheet...');
 
@@ -638,7 +708,7 @@ async function appendToSheet() {
     const res = await fetch('/api/append', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sheet_id: sheetId, sheet_name: sheetName, date, patients })
+      body: JSON.stringify({ sheet_id: sheetId, sheet_name: sheetName, date_groups: dateGroups })
     });
     const data = await res.json();
     hideLoading();

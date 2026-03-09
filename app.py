@@ -155,6 +155,7 @@ def upload_image():
         
         return jsonify({
             "success": True,
+            "date_groups": result.get("date_groups", []),
             "date": result.get("date", ""),
             "date_confidence": result.get("date_confidence", 0.8),
             "patients": result.get("patients", [])
@@ -199,13 +200,22 @@ def append_to_sheet():
     
     date_str = (data.get("date") or "").strip()
     patients = data.get("patients", [])
+    date_groups = data.get("date_groups", None)
     sheet_name = data.get("sheet_name", "Sheet1")
     
-    if not patients:
+    # Collect all patients for validation (from groups or flat list)
+    all_patients = []
+    if date_groups:
+        for g in date_groups:
+            all_patients.extend(g.get("patients", []))
+    else:
+        all_patients = patients
+    
+    if not all_patients:
         return jsonify({"error": "No patient records to append."}), 400
     
     # Validate amounts
-    for i, p in enumerate(patients):
+    for i, p in enumerate(all_patients):
         amt = p.get("amount")
         if amt is not None and amt != "":
             try:
@@ -213,7 +223,7 @@ def append_to_sheet():
             except (ValueError, TypeError):
                 return jsonify({"error": f"Patient #{i+1}: Amount must be a number, got '{amt}'."}), 400
     
-    result = sw.append_patient_rows(sheet_id, date_str, patients, sheet_name)
+    result = sw.append_patient_rows(sheet_id, date_str, patients, sheet_name, date_groups=date_groups)
     
     if result["success"]:
         return jsonify({
