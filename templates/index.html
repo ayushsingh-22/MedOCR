@@ -2,12 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>MedOCR — Handwritten Test List to Google Sheets</title>
+  <meta name="description" content="Scan handwritten medical test lists and append patient data to Google Sheets using Gemini AI OCR." />
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.json" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MedOCR" />
+  <link rel="apple-touch-icon" href="/static/icon-192.png" />
+
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
   <link rel="stylesheet" href="/static/style.css" />
+
+  <!-- Inline theme init to prevent FOUC -->
+  <script>
+    (function() {
+      var stored = localStorage.getItem('medocr_theme');
+      if (stored === 'dark' || stored === 'light') {
+        document.documentElement.setAttribute('data-theme', stored);
+      }
+      // If 'system' or null, do nothing — CSS @media handles it
+    })();
+  </script>
 </head>
 <body>
   <!-- Background Orbs -->
@@ -22,6 +45,11 @@
         <span class="logo-text">MedOCR</span>
       </div>
       <div class="header-subtitle">Handwritten Lab Records → Google Sheets</div>
+      <div class="header-actions">
+        <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
+          <span class="theme-icon" id="themeIcon">🌙</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -71,6 +99,7 @@
             />
           </div>
           <p class="field-hint">Found in the URL: docs.google.com/spreadsheets/d/<strong>[ID]</strong>/edit</p>
+          <p class="field-hint" id="serverSheetHint" style="display:none">✅ Default Sheet ID loaded from server — leave as-is or change to override</p>
         </div>
 
         <!-- Sheet Name -->
@@ -99,14 +128,14 @@
               <span class="chip-dot"></span>
               <span id="authChipText">Checking...</span>
             </div>
-            <button class="btn btn-secondary" id="btnGoogleAuth" onclick="handleGoogleAuth()">
+            <button class="btn btn-secondary btn-sm" id="btnGoogleAuth" onclick="handleGoogleAuth()">
               Connect Account
             </button>
-            <button class="btn btn-ghost" id="btnLogout" onclick="handleLogout()" style="display:none">
+            <button class="btn btn-ghost btn-sm" id="btnLogout" onclick="handleLogout()" style="display:none">
               Disconnect
             </button>
           </div>
-          <p class="field-hint" id="credsHint" style="display:none;color:#f59e0b">
+          <p class="field-hint" id="credsHint" style="display:none;color:var(--warning)">
             ⚠️ <code>credentials.json</code> not found in the app folder. 
             <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Download from Google Cloud Console</a>
             and place it next to <code>app.py</code>.
@@ -129,9 +158,9 @@
            ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
            onclick="document.getElementById('fileInput').click()">
         <div class="upload-icon">📷</div>
-        <div class="upload-title">Drop image here or click to browse</div>
+        <div class="upload-title">Drop image here or tap to browse</div>
         <div class="upload-sub">PNG, JPEG, WEBP · Max 16 MB</div>
-        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleFileSelect(event)" />
+        <input type="file" id="fileInput" accept="image/*" capture="environment" style="display:none" onchange="handleFileSelect(event)" />
       </div>
 
       <div id="previewSection" style="display:none" class="preview-section">
@@ -217,6 +246,15 @@
       <div class="spinner"></div>
       <div id="loadingText" class="loading-text">Analysing image with Gemini AI...</div>
       <div class="loading-sub">This may take 10–20 seconds</div>
+    </div>
+  </div>
+
+  <!-- PWA Install Prompt -->
+  <div id="installPrompt" class="install-prompt">
+    <p>📲 Add MedOCR to your home screen for quick access!</p>
+    <div class="install-prompt-actions">
+      <button class="btn btn-primary btn-sm" id="btnInstall">Install</button>
+      <button class="btn btn-ghost btn-sm" id="btnDismissInstall">Not now</button>
     </div>
   </div>
 

@@ -6,7 +6,7 @@ Flask backend for the Medical OCR → Google Sheets tool.
 import os
 import uuid
 import json
-from flask import Flask, request, jsonify, session, redirect, render_template, url_for
+from flask import Flask, request, jsonify, session, redirect, render_template, url_for, send_from_directory
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
@@ -36,6 +36,13 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/sw.js")
+def service_worker():
+    """Serve the service worker from root scope."""
+    return send_from_directory(app.static_folder, "sw.js",
+                               mimetype="application/javascript")
+
+
 @app.route("/health")
 def health():
     """Lightweight keep-alive endpoint. Ping this every ~10 min to prevent
@@ -50,10 +57,12 @@ def auth_status():
     has_creds_file = os.path.exists(sw.CREDENTIALS_PATH)
     gemini_env_key = os.environ.get("GEMINI_API_KEY", "")
     has_server_gemini_key = bool(gemini_env_key and gemini_env_key != "your_gemini_api_key_here")
+    default_sheet_id = (os.environ.get("Google_Sheet_ID") or os.environ.get("GOOGLE_SHEET_ID") or "").strip()
     return jsonify({
         "authenticated": authenticated,
         "has_credentials_file": has_creds_file,
-        "has_server_gemini_key": has_server_gemini_key
+        "has_server_gemini_key": has_server_gemini_key,
+        "default_sheet_id": default_sheet_id
     })
 
 
@@ -183,7 +192,10 @@ def append_to_sheet():
     
     sheet_id = (data.get("sheet_id") or "").strip()
     if not sheet_id:
-        return jsonify({"error": "Google Sheet ID is required."}), 400
+        # Fall back to .env default
+        sheet_id = (os.environ.get("Google_Sheet_ID") or os.environ.get("GOOGLE_SHEET_ID") or "").strip()
+    if not sheet_id:
+        return jsonify({"error": "Google Sheet ID is required. Set it in the UI or in the .env file."}), 400
     
     date_str = (data.get("date") or "").strip()
     patients = data.get("patients", [])

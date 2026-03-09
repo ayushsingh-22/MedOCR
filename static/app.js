@@ -1,11 +1,130 @@
 /**
  * app.js - MedOCR Frontend Logic
- * Handles file upload, OCR trigger, review table, and Google Sheets append.
+ * Handles file upload, OCR trigger, review table, Google Sheets append,
+ * theme management (light/dark/system), and PWA service worker.
  */
 
 // ── State ───────────────────────────────────────────────────────────────────
 let selectedFile = null;
 let currentPatients = []; // Array of patient objects in the review table
+
+// ── Theme Management ────────────────────────────────────────────────────────
+const THEME_KEY = 'medocr_theme';
+const THEME_ICONS = { light: '☀️', dark: '🌙', system: '💻' };
+const THEME_TITLES = { light: 'Light mode — click for dark', dark: 'Dark mode — click for system', system: 'System default — click for light' };
+
+function initTheme() {
+  const stored = localStorage.getItem(THEME_KEY);
+  // First-time user: no stored value → use 'system'
+  const mode = stored || 'system';
+  applyTheme(mode);
+  updateThemeToggleUI(mode);
+
+  // Listen for OS preference changes (only relevant in system mode)
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (getCurrentThemeMode() === 'system') {
+      applyTheme('system');
+    }
+    // Also update theme-color meta tag
+    updateThemeColorMeta();
+  });
+}
+
+function getCurrentThemeMode() {
+  return localStorage.getItem(THEME_KEY) || 'system';
+}
+
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === 'light') {
+    root.setAttribute('data-theme', 'light');
+  } else if (mode === 'dark') {
+    root.setAttribute('data-theme', 'dark');
+  } else {
+    // System: remove data-theme so CSS @media takes over
+    root.removeAttribute('data-theme');
+  }
+  localStorage.setItem(THEME_KEY, mode);
+  updateThemeColorMeta();
+}
+
+function updateThemeToggleUI(mode) {
+  const icon = document.getElementById('themeIcon');
+  const btn = document.getElementById('themeToggle');
+  if (icon) icon.textContent = THEME_ICONS[mode] || '💻';
+  if (btn) btn.title = THEME_TITLES[mode] || 'Toggle theme';
+}
+
+function cycleTheme() {
+  const current = getCurrentThemeMode();
+  const next = current === 'system' ? 'light' : current === 'light' ? 'dark' : 'system';
+  applyTheme(next);
+  updateThemeToggleUI(next);
+  showToast(`Theme: ${next === 'system' ? 'System default' : next.charAt(0).toUpperCase() + next.slice(1)}`, 'info');
+}
+
+function updateThemeColorMeta() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark' ||
+    (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  meta.setAttribute('content', isDark ? '#080814' : '#6366f1');
+}
+
+// ── PWA Service Worker ──────────────────────────────────────────────────────
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then((reg) => console.log('SW registered, scope:', reg.scope))
+      .catch((err) => console.warn('SW registration failed:', err));
+  }
+}
+
+// ── PWA Install Prompt ──────────────────────────────────────────────────────
+let deferredInstallPrompt = null;
+
+function setupInstallPrompt() {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    // Show custom install banner
+    const banner = document.getElementById('installPrompt');
+    if (banner) banner.classList.add('show');
+  });
+
+  const btnInstall = document.getElementById('btnInstall');
+  const btnDismiss = document.getElementById('btnDismissInstall');
+
+  if (btnInstall) {
+    btnInstall.addEventListener('click', async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const result = await deferredInstallPrompt.userChoice;
+        if (result.outcome === 'accepted') {
+          showToast('🎉 MedOCR installed!', 'success');
+        }
+        deferredInstallPrompt = null;
+      }
+      const banner = document.getElementById('installPrompt');
+      if (banner) banner.classList.remove('show');
+    });
+  }
+
+  if (btnDismiss) {
+    btnDismiss.addEventListener('click', () => {
+      const banner = document.getElementById('installPrompt');
+      if (banner) banner.classList.remove('show');
+      deferredInstallPrompt = null;
+    });
+  }
+
+  // Hide prompt if app is already installed
+  window.addEventListener('appinstalled', () => {
+    const banner = document.getElementById('installPrompt');
+    if (banner) banner.classList.remove('show');
+    deferredInstallPrompt = null;
+  });
+}
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 async function checkAuthStatus() {
@@ -42,6 +161,18 @@ async function checkAuthStatus() {
       btnAuth.style.display = '';
       btnLogout.style.display = 'none';
     }
+
+    // Pre-fill Google Sheet ID from .env if user hasn't set one
+    const sheetInput = document.getElementById('sheetId');
+    const sheetHint = document.getElementById('serverSheetHint');
+    if (data.default_sheet_id) {
+      if (!sheetInput.value.trim()) {
+        sheetInput.value = data.default_sheet_id;
+      }
+      if (sheetHint) sheetHint.style.display = 'block';
+    } else {
+      if (sheetHint) sheetHint.style.display = 'none';
+    }
   } catch (e) {
     console.error('Auth check failed:', e);
   }
@@ -68,10 +199,25 @@ async function handleLogout() {
   showToast('Disconnected from Google', 'info');
 }
 
-// API key toggle
+// ── DOMContentLoaded ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Init theme
+  initTheme();
+
+  // Theme toggle
+  const themeBtn = document.getElementById('themeToggle');
+  if (themeBtn) themeBtn.addEventListener('click', cycleTheme);
+
+  // Register service worker
+  registerServiceWorker();
+
+  // PWA install prompt
+  setupInstallPrompt();
+
+  // Auth check
   checkAuthStatus();
 
+  // API key toggle
   document.getElementById('toggleApiKey').addEventListener('click', () => {
     const input = document.getElementById('geminiApiKey');
     input.type = input.type === 'password' ? 'text' : 'password';
@@ -218,7 +364,7 @@ function renderTable() {
         <input class="cell-input ${confClass(conf.age)}"
                value="${esc(p.age)}"
                oninput="updatePatient(${idx}, 'age', this.value)"
-               placeholder="Age" style="width:52px" />
+               placeholder="Age" style="width:100%" />
       </td>
       <td class="col-gender">
         <select class="cell-select" onchange="updatePatient(${idx}, 'gender', this.value)">
@@ -236,7 +382,7 @@ function renderTable() {
                id="amt-${idx}"
                value="${p.amount != null ? p.amount : ''}"
                oninput="updateAmount(${idx}, this)"
-               placeholder="Amount" />
+               placeholder="Amt" />
       </td>
       <td class="col-crossed" style="text-align:center">
         <input type="checkbox" class="skip-toggle" title="Skip this entry"
