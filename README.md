@@ -57,6 +57,7 @@ Then update `.env` values:
 GEMINI_API_KEY=your_gemini_api_key_here
 GOOGLE_SHEET_ID=
 FLASK_SECRET_KEY=change-me-to-a-random-secret-string
+REDIRECT_URI=http://localhost:5000/auth/callback
 ```
 
 Notes:
@@ -101,6 +102,55 @@ Open:
 
 5. Append
 - Click `Append to Google Sheet`.
+
+## Deploy on Render (Recommended)
+
+This project is a Flask backend app, so use a Python host (Render/Railway/Fly.io). Netlify is not suitable for this architecture.
+
+### 1. Push the repo to GitHub
+
+Make sure these are **not** committed:
+- `.env`
+- `credentials.json`
+- `token.json`
+
+### 2. Create a Render Web Service
+
+Use these settings:
+- Runtime: `Python`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `python -m gunicorn app:app --bind 0.0.0.0:$PORT`
+
+(`Procfile` is already included with the same start command.)
+
+### 3. Configure Environment Variables in Render
+
+Set:
+- `FLASK_SECRET_KEY` = strong random string
+- `GEMINI_API_KEY` = your Gemini key
+- `GOOGLE_SHEET_ID` = optional default sheet id
+- `REDIRECT_URI` = `https://<your-render-domain>/auth/callback`
+
+Optional path overrides:
+- `GOOGLE_OAUTH_CREDENTIALS_PATH`
+- `TOKEN_PATH`
+
+### 4. Add OAuth credentials file at runtime
+
+The app requires `credentials.json` for Google OAuth. In production, provide it through your deployment process (for example: mounted file, secure secret file, or startup step that writes it to disk).
+
+### 5. Update Google Cloud OAuth redirect URI
+
+In Google Cloud Console, add this exact redirect URI to your OAuth client:
+- `https://<your-render-domain>/auth/callback`
+
+### 6. Deploy and test
+
+After deploy:
+1. Open your Render URL.
+2. Click `Connect Account` and complete Google login.
+3. Upload an image and run OCR.
+4. Append to your Google Sheet.
 
 ## Output Format in Google Sheet
 

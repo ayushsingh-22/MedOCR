@@ -14,9 +14,10 @@ from googleapiclient.errors import HttpError
 
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-TOKEN_PATH = os.path.join(os.path.dirname(__file__), "token.json")
-CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), "credentials.json")
-REDIRECT_URI = "http://localhost:5000/auth/callback"
+BASE_DIR = os.path.dirname(__file__)
+TOKEN_PATH = os.environ.get("TOKEN_PATH", os.path.join(BASE_DIR, "token.json"))
+CREDENTIALS_PATH = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_PATH", os.path.join(BASE_DIR, "credentials.json"))
+REDIRECT_URI = os.environ.get("REDIRECT_URI", "http://localhost:5000/auth/callback")
 
 MONTH_NAMES = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
@@ -92,7 +93,7 @@ def get_auth_url() -> tuple:
         raise FileNotFoundError(
             "credentials.json not found. Please download it from Google Cloud Console "
             "(APIs & Services → Credentials → OAuth 2.0 Client IDs) and place it in "
-            f"the same folder as this app: {os.path.dirname(__file__)}"
+            f"the same folder as this app: {BASE_DIR}"
         )
 
     flow = Flow.from_client_secrets_file(
@@ -110,7 +111,7 @@ def get_auth_url() -> tuple:
     return auth_url, state, code_verifier
 
 
-def handle_oauth_callback(code: str, state: str, code_verifier: str = None) -> bool:
+def handle_oauth_callback(code: str, state: str, code_verifier: str | None = None) -> bool:
     """Exchange authorization code for credentials and save to token.json.
     'state' must be the same value returned by get_auth_url().
     'code_verifier' must be the PKCE verifier from the same get_auth_url() call.
