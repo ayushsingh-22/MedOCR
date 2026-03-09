@@ -469,7 +469,7 @@ body {
   border-radius: var(--radius);
   padding: 40px 20px;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition: all 0.25s;
   background: var(--bg-input);
 }
@@ -481,6 +481,15 @@ body {
 .upload-icon { font-size: 36px; margin-bottom: 10px; }
 .upload-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
 .upload-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+/* Two-button row inside upload zone */
+.upload-btn-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
 
 .preview-section {
   margin-top: 16px;
