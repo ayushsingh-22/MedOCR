@@ -149,8 +149,8 @@
       <div class="card-header">
         <span class="step-badge">2</span>
         <div>
-          <h2>Upload Image</h2>
-          <p class="card-desc">Photo of handwritten medical test list</p>
+          <h2>Upload Images</h2>
+          <p class="card-desc">Photos of handwritten medical test lists</p>
         </div>
       </div>
 
@@ -158,19 +158,22 @@
            ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
            onclick="document.getElementById('fileInput').click()">
         <div class="upload-icon">📷</div>
-        <div class="upload-title">Drop image here or tap to browse</div>
-        <div class="upload-sub">PNG, JPEG, WEBP · Max 16 MB</div>
-        <input type="file" id="fileInput" accept="image/*" capture="environment" style="display:none" onchange="handleFileSelect(event)" />
+        <div class="upload-title">Drop images here or tap to browse</div>
+        <div class="upload-sub">Select one or more images · PNG, JPEG, WEBP · Max 16 MB each</div>
+        <input type="file" id="fileInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handleFileSelect(event)" />
       </div>
 
       <div id="previewSection" style="display:none" class="preview-section">
-        <img id="previewImg" class="preview-img" alt="Uploaded image preview" />
-        <div class="preview-info">
-          <span id="previewFileName" class="preview-filename"></span>
-          <button class="btn btn-ghost btn-sm" onclick="clearUpload()">✕ Remove</button>
+        <div class="preview-gallery" id="previewGallery">
+          <!-- Thumbnails populated by JS -->
         </div>
-        <button class="btn btn-primary" id="btnAnalyse" onclick="analyseImage()">
-          <span class="btn-icon">🔍</span> Analyse with Gemini AI
+        <div class="preview-actions">
+          <span class="preview-count" id="previewCount">0 images selected</span>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('fileInput').click()">+ Add more</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearUpload()">✕ Clear all</button>
+        </div>
+        <button class="btn btn-primary btn-lg" id="btnAnalyse" onclick="analyseImages()">
+          <span class="btn-icon">🔍</span> Analyse all with Gemini AI
         </button>
       </div>
     </section>

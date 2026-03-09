@@ -5,7 +5,7 @@
  */
 
 // ── State ───────────────────────────────────────────────────────────────────
-let selectedFile = null;
+let selectedFiles = []; // Array of File objects
 let currentPatients = []; // Array of patient objects in the review table
 
 // ── Theme Management ────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('extractedDate').addEventListener('input', updateDatePreview);
 });
 
-// ── File Upload ──────────────────────────────────────────────────────────────
+// ── File Upload (multi-image) ────────────────────────────────────────────────
 function handleDragOver(e) {
   e.preventDefault();
   document.getElementById('uploadZone').classList.add('drag-over');
@@ -259,66 +259,178 @@ function handleDragLeave() {
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('uploadZone').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) setFile(file);
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  if (files.length) addFiles(files);
 }
 function handleFileSelect(e) {
-  const file = e.target.files[0];
-  if (file) setFile(file);
+  const files = Array.from(e.target.files);
+  if (files.length) addFiles(files);
+  // Reset input so same file can be re-selected
+  e.target.value = '';
 }
 
-function setFile(file) {
-  selectedFile = file;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    document.getElementById('previewImg').src = e.target.result;
-    document.getElementById('previewFileName').textContent = file.name;
-    document.getElementById('uploadZone').style.display = 'none';
-    document.getElementById('previewSection').style.display = 'flex';
-  };
-  reader.readAsDataURL(file);
+function addFiles(newFiles) {
+  selectedFiles = selectedFiles.concat(newFiles);
+  renderGallery();
+  document.getElementById('uploadZone').style.display = 'none';
+  document.getElementById('previewSection').style.display = 'flex';
+}
+
+function removeFile(index) {
+  selectedFiles.splice(index, 1);
+  if (selectedFiles.length === 0) {
+    clearUpload();
+  } else {
+    renderGallery();
+  }
+}
+
+function renderGallery() {
+  const gallery = document.getElementById('previewGallery');
+  gallery.innerHTML = '';
+  selectedFiles.forEach((file, idx) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'preview-thumb';
+    const img = document.createElement('img');
+    img.alt = file.name;
+    // Create thumbnail URL
+    const url = URL.createObjectURL(file);
+    img.src = url;
+    img.onload = () => URL.revokeObjectURL(url);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'thumb-remove';
+    removeBtn.textContent = '✕';
+    removeBtn.title = 'Remove';
+    removeBtn.onclick = (e) => { e.stopPropagation(); removeFile(idx); };
+
+    const name = document.createElement('div');
+    name.className = 'thumb-name';
+    name.textContent = file.name;
+
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    thumb.appendChild(name);
+    gallery.appendChild(thumb);
+  });
+
+  document.getElementById('previewCount').textContent =
+    `${selectedFiles.length} image${selectedFiles.length !== 1 ? 's' : ''} selected`;
 }
 
 function clearUpload() {
-  selectedFile = null;
+  selectedFiles = [];
   document.getElementById('fileInput').value = '';
   document.getElementById('uploadZone').style.display = '';
   document.getElementById('previewSection').style.display = 'none';
+  document.getElementById('previewGallery').innerHTML = '';
   document.getElementById('stepReview').style.display = 'none';
 }
 
-// ── Analyse ──────────────────────────────────────────────────────────────────
-async function analyseImage() {
+// ── Analyse (batch multi-image) ──────────────────────────────────────────────
+async function analyseImages() {
   const apiKey = document.getElementById('geminiApiKey').value.trim();
-  // No frontend block — backend falls back to GEMINI_API_KEY env var if field is empty
-  if (!selectedFile) {
-    showToast('⚠️ No image selected', 'error');
+
+  if (selectedFiles.length === 0) {
+    showToast('⚠️ No images selected', 'error');
     return;
   }
 
-  showLoading('Analysing handwriting with Gemini AI...');
+  const total = selectedFiles.length;
+  let allPatients = [];
+  let firstDate = '';
+  let firstDateConf = 0;
+  let successCount = 0;
+  let errorCount = 0;
 
-  const formData = new FormData();
-  formData.append('image', selectedFile);
-  formData.append('api_key', apiKey);
+  // Show progress UI
+  showBatchProgress(0, total, 'Starting analysis...');
 
-  try {
-    const res = await fetch('/api/upload', { method: 'POST', body: formData });
-    const data = await res.json();
-    hideLoading();
+  for (let i = 0; i < total; i++) {
+    const file = selectedFiles[i];
+    showBatchProgress(i, total, `Analysing image ${i + 1} of ${total}: ${file.name}`);
 
-    if (!res.ok || data.error) {
-      showToast('❌ ' + (data.error || 'OCR failed'), 'error');
-      return;
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('api_key', apiKey);
+
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        errorCount++;
+        showToast(`⚠️ Image ${i + 1} failed: ${data.error || 'OCR error'}`, 'error');
+        continue;
+      }
+
+      // Use date from first successful image
+      if (!firstDate && data.date) {
+        firstDate = data.date;
+        firstDateConf = data.date_confidence || 0;
+      }
+
+      // Collect patients with re-numbered serials
+      const patients = (data.patients || []).map((p, pIdx) => ({
+        ...p,
+        serial: allPatients.length + pIdx + 1,
+        _source: file.name
+      }));
+      allPatients = allPatients.concat(patients);
+      successCount++;
+    } catch (err) {
+      errorCount++;
+      showToast(`⚠️ Image ${i + 1}: Network error`, 'error');
     }
-
-    // Populate review section
-    populateReviewSection(data);
-    showToast(`✅ Extracted ${data.patients.length} patient entries`, 'success');
-  } catch (err) {
-    hideLoading();
-    showToast('❌ Network error: ' + err.message, 'error');
   }
+
+  // Done — hide progress
+  hideBatchProgress();
+
+  if (allPatients.length === 0) {
+    showToast('❌ No patient data extracted from any image', 'error');
+    return;
+  }
+
+  // Populate review with merged results
+  populateReviewSection({
+    date: firstDate,
+    date_confidence: firstDateConf,
+    patients: allPatients
+  });
+
+  const msg = `✅ Extracted ${allPatients.length} patients from ${successCount} image${successCount !== 1 ? 's' : ''}`;
+  showToast(errorCount ? `${msg} (${errorCount} failed)` : msg, 'success');
+}
+
+function showBatchProgress(current, total, text) {
+  // Remove loading overlay if shown
+  hideLoading();
+  // Find or create progress UI inside the upload card
+  let progressEl = document.getElementById('batchProgress');
+  if (!progressEl) {
+    progressEl = document.createElement('div');
+    progressEl.id = 'batchProgress';
+    progressEl.className = 'batch-progress';
+    progressEl.innerHTML = `
+      <div class="batch-progress-bar"><div class="batch-progress-fill" id="batchProgressFill"></div></div>
+      <div class="batch-progress-text" id="batchProgressText"></div>
+    `;
+    const previewSection = document.getElementById('previewSection');
+    previewSection.appendChild(progressEl);
+  }
+  progressEl.style.display = 'block';
+  const pct = total > 0 ? Math.round(((current + 0.5) / total) * 100) : 0;
+  document.getElementById('batchProgressFill').style.width = pct + '%';
+  document.getElementById('batchProgressText').textContent = text;
+  // Disable analyse button during processing
+  document.getElementById('btnAnalyse').disabled = true;
+}
+
+function hideBatchProgress() {
+  const progressEl = document.getElementById('batchProgress');
+  if (progressEl) progressEl.style.display = 'none';
+  document.getElementById('btnAnalyse').disabled = false;
 }
 
 // ── Review Section ───────────────────────────────────────────────────────────
