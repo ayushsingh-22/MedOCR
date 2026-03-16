@@ -5,15 +5,12 @@ __pycache__/
 *.pyd
 *.log
 
-# Virtual environment
 .venv/
 venv/
 
-# Local secrets and auth tokens
 .env
 credentials.json
 token.json
 
-# Runtime uploads
 uploads/*
 !uploads/.gitkeep
