@@ -85,15 +85,16 @@ def is_authenticated() -> bool:
 
 def get_auth_url() -> tuple:
     """Generate Google OAuth authorization URL.
-    Returns (auth_url, state, code_verifier) — all three must be kept together.
-    The state and code_verifier must be stored in the session and passed back to
-    handle_oauth_callback() so it can reconstruct the same Flow with PKCE.
+    Returns (auth_url, state, code_verifier) — code_verifier is always None
+    because we use a server-side Web Application flow (no PKCE needed).
+    The state must be stored in the session and passed back to
+    handle_oauth_callback() so it can reconstruct the same Flow.
     """
     if not os.path.exists(CREDENTIALS_PATH):
         raise FileNotFoundError(
             "credentials.json not found. Please download it from Google Cloud Console "
-            "(APIs & Services → Credentials → OAuth 2.0 Client IDs) and place it in "
-            f"the same folder as this app: {BASE_DIR}"
+            "(APIs & Services → Credentials → OAuth 2.0 Client IDs → Web Application) "
+            f"and place it in the same folder as this app: {BASE_DIR}"
         )
 
     flow = Flow.from_client_secrets_file(
@@ -106,15 +107,16 @@ def get_auth_url() -> tuple:
         include_granted_scopes="true",
         prompt="consent"
     )
-    # The library auto-generates a PKCE code_verifier — we must persist it
-    code_verifier = flow.code_verifier
-    return auth_url, state, code_verifier
+    # No PKCE code_verifier — server-side web flow doesn't require it.
+    # Returning None as third element keeps the tuple API stable.
+    return auth_url, state, None
 
 
 def handle_oauth_callback(code: str, state: str, code_verifier: str | None = None) -> bool:
     """Exchange authorization code for credentials and save to token.json.
     'state' must be the same value returned by get_auth_url().
-    'code_verifier' must be the PKCE verifier from the same get_auth_url() call.
+    'code_verifier' is accepted for backward compatibility but ignored —
+    we use a server-side Web Application flow with no PKCE.
     """
     flow = Flow.from_client_secrets_file(
         CREDENTIALS_PATH,
@@ -122,9 +124,7 @@ def handle_oauth_callback(code: str, state: str, code_verifier: str | None = Non
         state=state,
         redirect_uri=REDIRECT_URI
     )
-    # Restore the PKCE code_verifier so token exchange matches the challenge
-    if code_verifier:
-        flow.code_verifier = code_verifier
+    # No PKCE — just exchange the code directly
     flow.fetch_token(code=code)
     creds = flow.credentials
     with open(TOKEN_PATH, "w") as f:

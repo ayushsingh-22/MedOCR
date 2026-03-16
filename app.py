@@ -83,35 +83,91 @@ def auth_callback():
     """Google OAuth callback — exchange code for token."""
     code = request.args.get("code")
     state = request.args.get("state")
-    if not code:
-        return "<h2 style='color:red'>OAuth Error: No authorization code received.</h2>", 400
+    error = request.args.get("error")
+    error_description = request.args.get("error_description", "")
 
-    # Retrieve the state and code_verifier we saved during login
+    # ── Step 1: Check if Google sent an error instead of a code ──────────────
+    if error:
+        hint = ""
+        if error == "redirect_uri_mismatch":
+            hint = (
+                f"<p><b>Hint:</b> The redirect URI your app sent "
+                f"(<code>{sw.REDIRECT_URI}</code>) does not match any URI "
+                f"registered in Google Cloud Console for this OAuth client. "
+                f"Add <b>{sw.REDIRECT_URI}</b> to the authorized redirect URIs.</p>"
+            )
+        return f"""
+        <html><head><title>OAuth Error</title>
+        <style>
+          body {{ font-family: sans-serif; padding: 40px; background: #0f0f1a; color: #fff; }}
+          code {{ background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; }}
+          .red {{ color: #f87171; }}
+        </style></head><body>
+          <h2 class="red">❌ Google OAuth Error</h2>
+          <p><b>Error:</b> <code>{error}</code></p>
+          <p><b>Description:</b> {error_description}</p>
+          {hint}
+          <p>Check that your <code>credentials.json</code> is "Web application" type 
+             (not "Desktop app") and that the redirect URI above is listed in 
+             Google Cloud Console → APIs &amp; Services → Credentials.</p>
+        </body></html>
+        """, 400
+
+    # ── Step 2: Check authorization code is present ───────────────────────────
+    if not code:
+        return f"""
+        <html><body style="font-family:sans-serif;padding:40px;background:#0f0f1a;color:#fff">
+          <h2 style="color:#f87171">❌ OAuth Error: No authorization code received.</h2>
+          <p>Google did not return a code. This usually means the OAuth consent was cancelled.</p>
+        </body></html>
+        """, 400
+
+    # ── Step 3: Retrieve session state + verifier saved during /api/auth/login ─
     saved_state = session.pop("oauth_state", None) or state
     saved_verifier = session.pop("oauth_code_verifier", None)
 
+    # ── Step 4: Exchange code for token ──────────────────────────────────────
     try:
         sw.handle_oauth_callback(code, saved_state, saved_verifier)
-        return """
+        return f"""
         <html><head><title>Authentication Successful</title>
         <style>
-          body { font-family: sans-serif; display: flex; align-items: center; 
+          body {{ font-family: sans-serif; display: flex; align-items: center; 
                  justify-content: center; height: 100vh; margin: 0; 
-                 background: #0f0f1a; color: #fff; }
-          .card { text-align: center; padding: 40px; background: rgba(255,255,255,0.05);
-                  border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); }
-          h2 { color: #4ade80; } p { color: #aaa; }
+                 background: #0f0f1a; color: #fff; }}
+          .card {{ text-align: center; padding: 40px; background: rgba(255,255,255,0.05);
+                  border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); }}
+          h2 {{ color: #4ade80; }} p {{ color: #aaa; }}
+          code {{ font-size:12px; background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; }}
         </style>
         </head><body>
           <div class="card">
             <h2>✅ Google Account Connected!</h2>
+            <p>Redirect URI used: <code>{sw.REDIRECT_URI}</code></p>
             <p>You can now close this tab and return to the app.</p>
-            <script>setTimeout(() => { window.close(); }, 2000);</script>
+            <script>setTimeout(() => {{ window.close(); }}, 2000);</script>
           </div>
         </body></html>
         """
     except Exception as e:
-        return f"<h2 style='color:red'>OAuth Error: {e}</h2>", 400
+        import traceback
+        tb = traceback.format_exc()
+        return f"""
+        <html><head><title>OAuth Token Error</title>
+        <style>
+          body {{ font-family: sans-serif; padding: 40px; background: #0f0f1a; color: #fff; }}
+          pre {{ background: rgba(255,255,255,0.05); padding: 16px; border-radius: 8px; 
+                overflow-x: auto; font-size: 12px; color: #f87171; }}
+          code {{ background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; }}
+        </style></head><body>
+          <h2 style="color:#f87171">❌ Token Exchange Failed (Step 4)</h2>
+          <p><b>Error:</b> {e}</p>
+          <p><b>Redirect URI used:</b> <code>{sw.REDIRECT_URI}</code></p>
+          <p>Make sure this URI is listed in Google Cloud Console and your 
+             <code>credentials.json</code> is "Web application" type.</p>
+          <pre>{tb}</pre>
+        </body></html>
+        """, 400
 
 
 @app.route("/api/auth/logout", methods=["POST"])
