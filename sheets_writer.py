@@ -84,9 +84,14 @@ def is_authenticated() -> bool:
 
 
 def get_auth_url() -> tuple:
-    """Generate Google OAuth authorization URL.
+    """Generate Google OAuth authorization URL — no PKCE, pure server-side flow.
+
+    WHY: requests-oauthlib >=1.4 adds automatic PKCE (code_challenge) to
+    authorization_url(). Since we recreate a new Flow object in the callback,
+    the code_verifier is lost -> Google returns `invalid_grant: Missing code
+    verifier`. We bypass this by calling the underlying oauth2session directly
+    and explicitly setting code_challenge_method=None.
     Returns (auth_url, state, None).
-    Uses standard server-side Web Application OAuth flow (no PKCE params).
     """
     if not os.path.exists(CREDENTIALS_PATH):
         raise FileNotFoundError(
@@ -98,27 +103,33 @@ def get_auth_url() -> tuple:
     flow = Flow.from_client_secrets_file(
         CREDENTIALS_PATH,
         scopes=SCOPES,
-        redirect_uri=REDIRECT_URI
+        redirect_uri=REDIRECT_URI,
     )
-    auth_url, state = flow.authorization_url(
+
+    # Call the underlying requests_oauthlib session directly so we can
+    # pass code_challenge_method=None — this guarantees no PKCE params
+    # are included in the URL regardless of the library version.
+    auth_url, state = flow.oauth2session.authorization_url(
+        flow.client_config["auth_uri"],
         access_type="offline",
         include_granted_scopes="true",
-        prompt="consent"
+        prompt="consent",
+        code_challenge_method=None,  # Explicitly disable PKCE
     )
     return auth_url, state, None
 
 
-def handle_oauth_callback(code: str, state: str, code_verifier: str | None = None) -> bool:
+def handle_oauth_callback(code: str, state: str) -> bool:
     """Exchange authorization code for credentials and save to token.json.
-    'state' must be the same value returned by get_auth_url().
-    'code_verifier' is ignored in web flow and kept only for API compatibility.
+    No PKCE was used, so no code_verifier is needed.
     """
     flow = Flow.from_client_secrets_file(
         CREDENTIALS_PATH,
         scopes=SCOPES,
         state=state,
-        redirect_uri=REDIRECT_URI
+        redirect_uri=REDIRECT_URI,
     )
+    # fetch_token without code_verifier — matches the no-PKCE auth URL
     flow.fetch_token(code=code)
     creds = flow.credentials
     with open(TOKEN_PATH, "w") as f:
