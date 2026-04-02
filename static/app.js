@@ -71,13 +71,36 @@ function updateThemeColorMeta() {
   meta.setAttribute('content', isDark ? '#080814' : '#6366f1');
 }
 
-// ── PWA Service Worker ──────────────────────────────────────────────────────
+// ── PWA Service Worker ────────────────────────────────────────────
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' })
-      .then((reg) => console.log('SW registered, scope:', reg.scope))
-      .catch((err) => console.warn('SW registration failed:', err));
-  }
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker
+    .register('/sw.js', {
+      scope: '/',
+      // Always fetch sw.js from network, never from HTTP cache.
+      // This makes new SW versions propagate on the very next page load.
+      updateViaCache: 'none',
+    })
+    .then((reg) => {
+      console.log('SW registered, scope:', reg.scope);
+      // Force-check for a new SW version immediately on every page load
+      reg.update();
+
+      // When a new SW is found, skip waiting so it activates without
+      // requiring the user to close all tabs.
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (newWorker) {
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // New SW installed — tell it to skip waiting immediately
+              newWorker.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        }
+      });
+    })
+    .catch((err) => console.warn('SW registration failed:', err));
 }
 
 // ── PWA Install Prompt ──────────────────────────────────────────────────────

@@ -40,9 +40,15 @@ def index():
 
 @app.route("/sw.js")
 def service_worker():
-    """Serve the service worker from root scope."""
-    return send_from_directory(app.static_folder, "sw.js",
-                               mimetype="application/javascript")
+    """Serve the service worker from root scope.
+    MUST be served with Cache-Control: no-store so the browser always
+    fetches the latest version from the network on every page load.
+    """
+    response = send_from_directory(app.static_folder, "sw.js",
+                                   mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
 
 
 @app.route("/health")
