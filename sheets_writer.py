@@ -5,8 +5,7 @@ Handles Google OAuth and appending rows to a Google Sheet.
 
 import os
 import json
-import pickle
-import base64
+import secrets
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -87,8 +86,8 @@ def is_authenticated() -> bool:
 
 def get_auth_url() -> tuple:
     """Generate Google OAuth authorization URL.
-    Returns (auth_url, state, serialized_flow_state).
-    The flow object (with PKCE state) is pickled and returned for storage in the session.
+    Returns (auth_url, state, code_verifier).
+    We generate and persist a PKCE verifier in session-safe form.
     """
     if not os.path.exists(CREDENTIALS_PATH):
         raise FileNotFoundError(
@@ -102,44 +101,33 @@ def get_auth_url() -> tuple:
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
+    code_verifier = secrets.token_urlsafe(64)
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
-        prompt="consent"
+        prompt="consent",
+        code_challenge_method="S256",
+        code_verifier=code_verifier,
     )
-    # Serialize the flow object to preserve PKCE code_verifier and internal state
-    flow_state = base64.b64encode(pickle.dumps(flow)).decode('utf-8')
-    return auth_url, state, flow_state
+    return auth_url, state, code_verifier
 
 
-def handle_oauth_callback(code: str, state: str, flow_state: str | None = None) -> bool:
+def handle_oauth_callback(code: str, state: str, code_verifier: str | None = None) -> bool:
     """Exchange authorization code for credentials and save to token.json.
     'state' must be the same value returned by get_auth_url().
-    'flow_state' must be the serialized flow object from get_auth_url() — contains PKCE verifier.
+    'code_verifier' should be the value returned by get_auth_url().
     """
-    if flow_state:
-        # Deserialize the flow object to restore PKCE state
-        try:
-            flow = pickle.loads(base64.b64decode(flow_state))
-        except Exception as e:
-            # Fallback if deserialization fails
-            print(f"Warning: Could not deserialize flow state: {e}")
-            flow = Flow.from_client_secrets_file(
-                CREDENTIALS_PATH,
-                scopes=SCOPES,
-                state=state,
-                redirect_uri=REDIRECT_URI
-            )
-    else:
-        flow = Flow.from_client_secrets_file(
-            CREDENTIALS_PATH,
-            scopes=SCOPES,
-            state=state,
-            redirect_uri=REDIRECT_URI
-        )
-    
-    # Exchange code for token (flow preserves PKCE verifier internally)
-    flow.fetch_token(code=code)
+    flow = Flow.from_client_secrets_file(
+        CREDENTIALS_PATH,
+        scopes=SCOPES,
+        state=state,
+        redirect_uri=REDIRECT_URI
+    )
+
+    token_kwargs = {"code": code}
+    if code_verifier:
+        token_kwargs["code_verifier"] = code_verifier
+    flow.fetch_token(**token_kwargs)
     creds = flow.credentials
     with open(TOKEN_PATH, "w") as f:
         f.write(creds.to_json())

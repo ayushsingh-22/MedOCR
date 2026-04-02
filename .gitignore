@@ -14,3 +14,7 @@ token.json
 
 uploads/*
 !uploads/.gitkeep
+__pycache__/app.cpython-313.pyc
+__pycache__/sheets_writer.cpython-313.pyc
+__pycache__/app.cpython-313.pyc
+__pycache__/sheets_writer.cpython-313.pyc

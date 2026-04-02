@@ -17,6 +17,8 @@ import sheets_writer as sw
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "1") == "1"
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "bmp", "tiff"}
@@ -70,9 +72,9 @@ def auth_status():
 def auth_login():
     """Redirect user to Google OAuth consent screen."""
     try:
-        url, state, flow_state = sw.get_auth_url()
-        session["oauth_state"] = state              # save state for callback
-        session["oauth_flow_state"] = flow_state    # save serialized flow for PKCE
+        url, state, code_verifier = sw.get_auth_url()
+        session["oauth_state"] = state
+        session["oauth_code_verifier"] = code_verifier
         return redirect(url)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
@@ -122,13 +124,13 @@ def auth_callback():
         </body></html>
         """, 400
 
-    # ── Step 3: Retrieve session state + flow saved during /api/auth/login ──
+    # ── Step 3: Retrieve session state + PKCE verifier saved during login ───
     saved_state = session.pop("oauth_state", None) or state
-    saved_flow_state = session.pop("oauth_flow_state", None)
+    saved_code_verifier = session.pop("oauth_code_verifier", None)
 
     # ── Step 4: Exchange code for token ──────────────────────────────────────
     try:
-        sw.handle_oauth_callback(code, saved_state, saved_flow_state)
+        sw.handle_oauth_callback(code, saved_state, saved_code_verifier)
         return f"""
         <html><head><title>Authentication Successful</title>
         <style>
