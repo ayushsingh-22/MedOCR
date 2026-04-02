@@ -118,12 +118,12 @@ def _clean_patients(patients):
             except (ValueError, TypeError):
                 amt = None
         
-        # Clean tests string
+        # Clean tests string — uppercase and normalise spacing
         tests = p.get("tests") or ""
-        tests = ", ".join([t.strip() for t in tests.split(",") if t.strip()])
+        tests = ", ".join([t.strip().upper() for t in tests.split(",") if t.strip()])
         
-        # Ensure name is cleaned
-        name = (p.get("name") or "").strip()
+        # Ensure name is cleaned and uppercased
+        name = (p.get("name") or "").strip().upper()
         age = str(p.get("age") or "").strip()
         gender = (p.get("gender") or "").strip().upper()
         

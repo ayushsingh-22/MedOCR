@@ -244,7 +244,7 @@ def append_patient_rows(
                     patient.get("age", ""),
                     patient.get("gender", "")
                 )
-                tests_col = (patient.get("tests") or "").strip()
+                tests_col = (patient.get("tests") or "").strip().upper()
                 amount_val = patient.get("amount")
                 
                 # Amount: use numeric value for Sheets (not string)

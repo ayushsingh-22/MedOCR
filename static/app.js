@@ -619,9 +619,9 @@ function renderGroupTable(gIdx) {
       <td class="col-num">${p.serial || pIdx + 1}</td>
       <td class="col-name">
         <input class="cell-input ${confClass(conf.name)}" 
-               value="${esc(p.name)}" 
-               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'name', this.value)"
-               placeholder="Patient name" />
+               value="${esc((p.name || '').toUpperCase())}" 
+               oninput="this.value=this.value.toUpperCase(); updateGroupPatient(${gIdx}, ${pIdx}, 'name', this.value)"
+               placeholder="PATIENT NAME" />
       </td>
       <td class="col-age">
         <input class="cell-input ${confClass(conf.age)}"
@@ -636,8 +636,8 @@ function renderGroupTable(gIdx) {
       </td>
       <td class="col-tests">
         <input class="cell-input ${confClass(conf.tests)}"
-               value="${esc(p.tests)}"
-               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'tests', this.value)"
+               value="${esc((p.tests || '').toUpperCase())}"
+               oninput="this.value=this.value.toUpperCase(); updateGroupPatient(${gIdx}, ${pIdx}, 'tests', this.value)"
                placeholder="CBC, TSH, LFT..." />
       </td>
       <td class="col-amount">
