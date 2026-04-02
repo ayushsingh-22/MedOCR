@@ -72,9 +72,8 @@ def auth_status():
 def auth_login():
     """Redirect user to Google OAuth consent screen."""
     try:
-        url, state, code_verifier = sw.get_auth_url()
+        url, state, _ = sw.get_auth_url()
         session["oauth_state"] = state
-        session["oauth_code_verifier"] = code_verifier
         return redirect(url)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
@@ -124,13 +123,12 @@ def auth_callback():
         </body></html>
         """, 400
 
-    # ── Step 3: Retrieve session state + PKCE verifier saved during login ───
+    # ── Step 3: Retrieve session state saved during login ───────────────────
     saved_state = session.pop("oauth_state", None) or state
-    saved_code_verifier = session.pop("oauth_code_verifier", None)
 
     # ── Step 4: Exchange code for token ──────────────────────────────────────
     try:
-        sw.handle_oauth_callback(code, saved_state, saved_code_verifier)
+        sw.handle_oauth_callback(code, saved_state)
         return f"""
         <html><head><title>Authentication Successful</title>
         <style>

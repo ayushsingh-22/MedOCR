@@ -5,7 +5,6 @@ Handles Google OAuth and appending rows to a Google Sheet.
 
 import os
 import json
-import secrets
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -86,8 +85,8 @@ def is_authenticated() -> bool:
 
 def get_auth_url() -> tuple:
     """Generate Google OAuth authorization URL.
-    Returns (auth_url, state, code_verifier).
-    We generate and persist a PKCE verifier in session-safe form.
+    Returns (auth_url, state, None).
+    Uses standard server-side Web Application OAuth flow (no PKCE params).
     """
     if not os.path.exists(CREDENTIALS_PATH):
         raise FileNotFoundError(
@@ -101,21 +100,18 @@ def get_auth_url() -> tuple:
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-    code_verifier = secrets.token_urlsafe(64)
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
-        prompt="consent",
-        code_challenge_method="S256",
-        code_verifier=code_verifier,
+        prompt="consent"
     )
-    return auth_url, state, code_verifier
+    return auth_url, state, None
 
 
 def handle_oauth_callback(code: str, state: str, code_verifier: str | None = None) -> bool:
     """Exchange authorization code for credentials and save to token.json.
     'state' must be the same value returned by get_auth_url().
-    'code_verifier' should be the value returned by get_auth_url().
+    'code_verifier' is ignored in web flow and kept only for API compatibility.
     """
     flow = Flow.from_client_secrets_file(
         CREDENTIALS_PATH,
@@ -123,11 +119,7 @@ def handle_oauth_callback(code: str, state: str, code_verifier: str | None = Non
         state=state,
         redirect_uri=REDIRECT_URI
     )
-
-    token_kwargs = {"code": code}
-    if code_verifier:
-        token_kwargs["code_verifier"] = code_verifier
-    flow.fetch_token(**token_kwargs)
+    flow.fetch_token(code=code)
     creds = flow.credentials
     with open(TOKEN_PATH, "w") as f:
         f.write(creds.to_json())
