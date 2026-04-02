@@ -3,7 +3,7 @@
  * Cache-first for static assets, network-first for API calls.
  */
 
-const CACHE_NAME = 'medocr-v1';
+const CACHE_NAME = 'medocr-v2'; // Bumped: date-group merge+sort fix in app.js
 const STATIC_ASSETS = [
   '/',
   '/static/style.css',

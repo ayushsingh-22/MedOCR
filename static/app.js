@@ -324,6 +324,75 @@ function clearUpload() {
   document.getElementById('stepReview').style.display = 'none';
 }
 
+// ── Date Group Utilities ──────────────────────────────────────────────────────
+
+/**
+ * Parse a date string like '7/3/2026', '07-03-2026', '7/3/26'
+ * into a numeric timestamp for sorting (returns Infinity if unparseable).
+ */
+function parseDateForSort(dateStr) {
+  if (!dateStr) return Infinity;
+  const parts = dateStr.replace(/-/g, '/').split('/');
+  if (parts.length < 2) return Infinity;
+  try {
+    const day   = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
+    let   year  = parts.length > 2 ? parseInt(parts[2], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    const d = new Date(year, month, day);
+    return isNaN(d.getTime()) ? Infinity : d.getTime();
+  } catch (e) {
+    return Infinity;
+  }
+}
+
+/**
+ * Normalise a date string to a canonical key for deduplication.
+ * Strips leading zeroes so '07/03/2026' and '7/3/2026' match.
+ */
+function normaliseDateKey(dateStr) {
+  if (!dateStr) return '';
+  return dateStr
+    .replace(/-/g, '/')
+    .split('/')
+    .map((p) => String(parseInt(p, 10) || p))
+    .join('/');
+}
+
+/**
+ * Given a raw array of date_groups (possibly from multiple images),
+ * merge groups that share the same date and sort them chronologically.
+ * Keeps the highest date_confidence seen for each merged group.
+ */
+function mergeAndSortDateGroups(groups) {
+  const map = new Map(); // normalisedDate -> group object
+
+  for (const g of groups) {
+    const key = normaliseDateKey(g.date);
+    if (map.has(key)) {
+      // Merge patients into existing group
+      const existing = map.get(key);
+      existing.patients = existing.patients.concat(g.patients || []);
+      // Keep the best confidence value seen
+      if ((g.date_confidence || 0) > (existing.date_confidence || 0)) {
+        existing.date_confidence = g.date_confidence;
+      }
+    } else {
+      // New date — clone so we don't mutate the original
+      map.set(key, {
+        date: g.date || '',
+        date_confidence: g.date_confidence || 0,
+        patients: [...(g.patients || [])]
+      });
+    }
+  }
+
+  // Sort chronologically (earliest first)
+  return Array.from(map.values()).sort(
+    (a, b) => parseDateForSort(a.date) - parseDateForSort(b.date)
+  );
+}
+
 // ── Analyse (batch multi-image) ──────────────────────────────────────────────
 async function analyseImages() {
   const apiKey = document.getElementById('geminiApiKey').value.trim();
@@ -337,7 +406,6 @@ async function analyseImages() {
   let allDateGroups = []; // Accumulate date_groups from all images
   let successCount = 0;
   let errorCount = 0;
-  let totalPatients = 0;
 
   // Show progress UI
   showBatchProgress(0, total, 'Starting analysis...');
@@ -371,7 +439,6 @@ async function analyseImages() {
           patients: data.patients || []
         });
       }
-      totalPatients += (data.patients || []).length;
       successCount++;
     } catch (err) {
       errorCount++;
@@ -382,13 +449,17 @@ async function analyseImages() {
   // Done — hide progress
   hideBatchProgress();
 
+  // Merge groups with the same date and sort chronologically
+  const mergedGroups = mergeAndSortDateGroups(allDateGroups);
+
+  const totalPatients = mergedGroups.reduce((sum, g) => sum + g.patients.length, 0);
   if (totalPatients === 0) {
     showToast('❌ No patient data extracted from any image', 'error');
     return;
   }
 
-  // Populate review with merged date groups
-  populateReviewSection({ date_groups: allDateGroups });
+  // Populate review with sorted, merged date groups
+  populateReviewSection({ date_groups: mergedGroups });
 
   const msg = `✅ Extracted ${totalPatients} patients from ${successCount} image${successCount !== 1 ? 's' : ''}`;
   showToast(errorCount ? `${msg} (${errorCount} failed)` : msg, 'success');
@@ -429,20 +500,24 @@ let currentDateGroups = []; // Array of { date, date_confidence, patients[] }
 
 function populateReviewSection(data) {
   // Build date groups from response
+  let rawGroups;
   if (data.date_groups && data.date_groups.length > 0) {
-    currentDateGroups = data.date_groups.map(g => ({
+    rawGroups = data.date_groups.map(g => ({
       date: g.date || '',
       date_confidence: g.date_confidence || 0,
       patients: g.patients || []
     }));
   } else {
     // Legacy: single date + flat patients
-    currentDateGroups = [{
+    rawGroups = [{
       date: data.date || '',
       date_confidence: data.date_confidence || 0,
       patients: data.patients || []
     }];
   }
+
+  // Always merge same-date groups and sort chronologically before display
+  currentDateGroups = mergeAndSortDateGroups(rawGroups);
 
   renderDateGroups();
 
