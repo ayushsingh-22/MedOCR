@@ -9,9 +9,11 @@
   <!-- PWA -->
   <link rel="manifest" href="/static/manifest.json" />
   <meta name="theme-color" content="#6366f1" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="MedOCR" />
+  <link rel="icon" href="/static/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
 
   <!-- Fonts -->
@@ -66,8 +68,26 @@
       </div>
 
       <div class="settings-grid">
+        <!-- OCR Provider -->
+        <div class="field-group field-group--full">
+          <label class="field-label">
+            <span class="label-icon">🤖</span> OCR Provider
+          </label>
+          <div class="provider-toggle">
+            <label class="provider-option">
+              <input type="radio" name="ocrProvider" value="gemini" id="providerGemini" checked onchange="updateProviderUI()">
+              <span class="provider-label">✨ Gemini</span>
+            </label>
+            <label class="provider-option">
+              <input type="radio" name="ocrProvider" value="groq" id="providerGroq" onchange="updateProviderUI()">
+              <span class="provider-label">⚡ Groq</span>
+            </label>
+          </div>
+          <p class="field-hint">Groq automatically cycles through all available vision models as fallback</p>
+        </div>
+
         <!-- Gemini API Key -->
-        <div class="field-group">
+        <div class="field-group" id="fieldGeminiKey">
           <label for="geminiApiKey" class="field-label">
             <span class="label-icon">🔑</span> Gemini API Key
             <a href="https://aistudio.google.com/app/apikey" target="_blank" class="get-key-link">Get key →</a>
@@ -83,6 +103,25 @@
             <button class="icon-btn" id="toggleApiKey" title="Show/Hide key">👁</button>
           </div>
           <p class="field-hint" id="serverKeyHint" style="display:none">✅ Server key configured — leave blank to use it, or enter a key to override</p>
+        </div>
+
+        <!-- Groq API Key -->
+        <div class="field-group" id="fieldGroqKey" style="display:none">
+          <label for="groqApiKey" class="field-label">
+            <span class="label-icon">🔑</span> Groq API Key
+            <a href="https://console.groq.com/keys" target="_blank" class="get-key-link">Get key →</a>
+          </label>
+          <div class="input-wrapper">
+            <input
+              type="password"
+              id="groqApiKey"
+              class="text-input"
+              placeholder="gsk_..."
+              autocomplete="off"
+            />
+            <button class="icon-btn" id="toggleGroqKey" title="Show/Hide key">👁</button>
+          </div>
+          <p class="field-hint" id="serverGroqKeyHint" style="display:none">✅ Server key configured — leave blank to use it, or enter a key to override</p>
         </div>
 
         <!-- Google Sheets -->
@@ -186,7 +225,7 @@
           <button class="btn btn-ghost btn-sm" onclick="clearUpload()">✕ Clear all</button>
         </div>
         <button class="btn btn-primary btn-lg" id="btnAnalyse" onclick="analyseImages()">
-          <span class="btn-icon">🔍</span> Analyse all with Gemini AI
+          <span class="btn-icon">🔍</span> <span id="btnAnalyseLabel">Analyse with Gemini AI</span>
         </button>
       </div>
     </section>

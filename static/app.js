@@ -8,6 +8,110 @@
 let selectedFiles = []; // Array of File objects
 let currentPatients = []; // Array of patient objects in the review table
 
+// ── Known Test List (from testName.json) ─────────────────────────────────────
+const KNOWN_TESTS = [
+  'ACE','ADA','AEC','AFB','AFP','ALP','AMMONIA','AMYLASE','ANA',
+  'ANAEMIA PROFILE','ANTI CCP','APTT','ASCI','ASMA','ASO','BIL','BIO',
+  'BLOOD C/S','BLOOD GROUP','BLOOD PROFILE','BODY PROFILE','BSF','BSR',
+  'BUN','C-PEPTIDE','CA','CBC','CBNAAT','CL','CORTISOL','COVID ANTIBODY',
+  'COVID ANTIGEN','CREATININE','CRP','D-DIMER','DENGUE SEROLOGY','ECG',
+  'FERRITIN','FOLIC ACID','FT3','FT4','GENERAL BODY PROFILE','GENEXPERT',
+  'H. PYLORI','HAV','HB','HBA1C','HBSAG','HCV','HIV','HYDATID SEROLOGY',
+  'IGA','IGE','IGG','IGM','ILB','INPT','INR','INSULIN F','IRON',
+  'IRON STUDIES','K','KETONE BODIES','KFT','LFT','LIPASE','LIPID PROFILE',
+  'LIVER FLUID','M.CELL','MG','MP ANTI','MXT','NA','NS1','OCCULT BLOOD',
+  'OT','PP','PRC','PRL','PROTEIN ELECTROPHORESIS','PSA','PT',
+  'PUS FOR CYTOLOGY','RA FACTOR','RA FACTOR QUANTITATIVE','SERUM','SGOT',
+  'SGPT','SNP','SPUTUM C/S','SPUTUM FOR AFB & C/S','STOOL','STOOL R/E',
+  'T.DOT','TESTOSTERONE','TFT','TICK TYPHUS IGM','TOTAL PROTEIN','TROP T',
+  'TSH','TTG','TYPHI IGM','UACR','UREA','URIC ACID','URINE C/S',
+  'URINE R/E','VDRL','VIT B12','VIT D3','WIDAL'
+];
+
+// ── Test Name Fuzzy Matching ──────────────────────────────────────────────────
+
+/** Compute Levenshtein distance between two strings. */
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => {
+    const row = [];
+    for (let j = 0; j <= n; j++) row[j] = i === 0 ? j : (j === 0 ? i : 0);
+    return row;
+  });
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+/**
+ * Fuzzy-match a single OCR token against KNOWN_TESTS.
+ * Returns the canonical test name if a good match is found, or null if no
+ * known test is close enough (caller should drop the token).
+ */
+function matchSingleTest(token) {
+  const t = token.trim().toUpperCase();
+  if (!t) return null;
+
+  // Exact match
+  if (KNOWN_TESTS.includes(t)) return t;
+
+  let bestMatch = null;
+  let bestScore = -1;
+
+  for (const known of KNOWN_TESTS) {
+    const maxLen = Math.max(t.length, known.length);
+    let score = maxLen === 0 ? 1 : 1 - levenshtein(t, known) / maxLen;
+
+    // Boost for prefix / substring containment.
+    // Guard: require at least 3 chars in both directions to avoid short
+    // test names ("K", "CA", "HB", "NA", "OT" …) firing on unrelated tokens.
+    if (known.startsWith(t) || t.startsWith(known)) {
+      score = Math.max(score, 0.75);
+    } else if (t.length >= 3 && known.includes(t)) {
+      score = Math.max(score, 0.75);
+    } else if (known.length >= 3 && t.includes(known)) {
+      score = Math.max(score, 0.75);
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = known;
+    }
+  }
+
+  // Only accept if similarity is high enough; otherwise signal "no match"
+  return bestScore >= 0.65 ? bestMatch : null;
+}
+
+/**
+ * Normalize an OCR-extracted tests string to canonical names from KNOWN_TESTS.
+ * Splits on commas / slashes, fuzzy-matches each token, deduplicates, and
+ * returns a clean comma-separated string.
+ * Tokens that don't match any known test are silently dropped.
+ */
+function normalizeTests(rawTests) {
+  if (!rawTests || !rawTests.trim()) return rawTests || '';
+
+  const tokens = rawTests.split(/[,\/\n]+/).map(t => t.trim()).filter(Boolean);
+  const seen = new Set();
+  const result = [];
+
+  for (const token of tokens) {
+    const matched = matchSingleTest(token);
+    if (matched !== null && !seen.has(matched)) {
+      seen.add(matched);
+      result.push(matched);
+    }
+  }
+
+  return result.join(', ');
+}
+
 // ── Theme Management ────────────────────────────────────────────────────────
 const THEME_KEY = 'medocr_theme';
 const THEME_ICONS = { light: '☀️', dark: '🌙', system: '💻' };
@@ -74,30 +178,39 @@ function updateThemeColorMeta() {
 // ── PWA Service Worker ────────────────────────────────────────────
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+
+  // When a new SW takes control, reload once so the page runs under the new SW.
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) { refreshing = true; location.reload(); }
+  });
+
   navigator.serviceWorker
     .register('/sw.js', {
       scope: '/',
       // Always fetch sw.js from network, never from HTTP cache.
-      // This makes new SW versions propagate on the very next page load.
       updateViaCache: 'none',
     })
     .then((reg) => {
       console.log('SW registered, scope:', reg.scope);
-      // Force-check for a new SW version immediately on every page load
       reg.update();
 
-      // When a new SW is found, skip waiting so it activates without
-      // requiring the user to close all tabs.
+      // Helper: tell a SW to skip waiting and activate immediately
+      const skipWaiting = (worker) => worker.postMessage({ type: 'SKIP_WAITING' });
+
+      // If there is already a waiting SW (e.g. previous update was deferred),
+      // activate it right now — don't wait for tab close.
+      if (reg.waiting) skipWaiting(reg.waiting);
+
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // New SW installed — tell it to skip waiting immediately
-              newWorker.postMessage({ type: 'SKIP_WAITING' });
-            }
-          });
-        }
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed') {
+            // New SW installed — activate immediately regardless of open tabs
+            skipWaiting(newWorker);
+          }
+        });
       });
     })
     .catch((err) => console.warn('SW registration failed:', err));
@@ -162,10 +275,15 @@ async function checkAuthStatus() {
     const credsHint = document.getElementById('credsHint');
     const serverKeyHint = document.getElementById('serverKeyHint');
 
-    // Show server key hint if env key is configured and user hasn't entered one
+    // Show server key hints based on active provider
     if (serverKeyHint) {
-      const userKey = document.getElementById('geminiApiKey').value.trim();
-      serverKeyHint.style.display = (data.has_server_gemini_key && !userKey) ? 'block' : 'none';
+      const userGeminiKey = document.getElementById('geminiApiKey').value.trim();
+      serverKeyHint.style.display = (data.has_server_gemini_key && !userGeminiKey) ? 'block' : 'none';
+    }
+    const serverGroqKeyHint = document.getElementById('serverGroqKeyHint');
+    if (serverGroqKeyHint) {
+      const userGroqKey = document.getElementById('groqApiKey').value.trim();
+      serverGroqKeyHint.style.display = (data.has_server_groq_key && !userGroqKey) ? 'block' : 'none';
     }
 
     if (!data.has_credentials_file) {
@@ -222,6 +340,20 @@ async function handleLogout() {
   showToast('Disconnected from Google', 'info');
 }
 
+// ── Provider toggle ──────────────────────────────────────────────────────────
+function updateProviderUI() {
+  const provider = document.querySelector('input[name="ocrProvider"]:checked')?.value || 'gemini';
+  document.getElementById('fieldGeminiKey').style.display = provider === 'gemini' ? '' : 'none';
+  document.getElementById('fieldGroqKey').style.display   = provider === 'groq'   ? '' : 'none';
+  const label = document.getElementById('btnAnalyseLabel');
+  if (label) {
+    label.textContent = provider === 'groq' ? 'Analyse with Groq AI' : 'Analyse with Gemini AI';
+  }
+  localStorage.setItem('medocr_provider', provider);
+  // Refresh key hints
+  checkAuthStatus();
+}
+
 // ── DOMContentLoaded ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   // Init theme
@@ -240,15 +372,28 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auth check
   checkAuthStatus();
 
-  // API key toggle
+  // API key toggles
   document.getElementById('toggleApiKey').addEventListener('click', () => {
     const input = document.getElementById('geminiApiKey');
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+  document.getElementById('toggleGroqKey').addEventListener('click', () => {
+    const input = document.getElementById('groqApiKey');
     input.type = input.type === 'password' ? 'text' : 'password';
   });
 
   // Load saved values from localStorage
   const savedKey = localStorage.getItem('medocr_api_key');
   if (savedKey) document.getElementById('geminiApiKey').value = savedKey;
+  const savedGroqKey = localStorage.getItem('medocr_groq_api_key');
+  if (savedGroqKey) document.getElementById('groqApiKey').value = savedGroqKey;
+  const savedProvider = localStorage.getItem('medocr_provider');
+  if (savedProvider) {
+    const radio = document.querySelector(`input[name="ocrProvider"][value="${savedProvider}"]`);
+    if (radio) radio.checked = true;
+  }
+  updateProviderUI();
+
   const savedSheet = localStorage.getItem('medocr_sheet_id');
   if (savedSheet) document.getElementById('sheetId').value = savedSheet;
   const savedSheetName = localStorage.getItem('medocr_sheet_name');
@@ -257,7 +402,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auto-save settings to localStorage
   document.getElementById('geminiApiKey').addEventListener('change', e => {
     localStorage.setItem('medocr_api_key', e.target.value);
-    // Refresh server-key hint visibility when user types a key
+    checkAuthStatus();
+  });
+  document.getElementById('groqApiKey').addEventListener('change', e => {
+    localStorage.setItem('medocr_groq_api_key', e.target.value);
     checkAuthStatus();
   });
   document.getElementById('sheetId').addEventListener('change', e => {
@@ -350,36 +498,45 @@ function clearUpload() {
 // ── Date Group Utilities ──────────────────────────────────────────────────────
 
 /**
- * Parse a date string like '7/3/2026', '07-03-2026', '7/3/26'
+ * Parse a date string in DD/MM/YY format (e.g. '07/03/26')
  * into a numeric timestamp for sorting (returns Infinity if unparseable).
  */
 function parseDateForSort(dateStr) {
   if (!dateStr) return Infinity;
-  const parts = dateStr.replace(/-/g, '/').split('/');
+
+  // Dates are always DD/MM/YY — normalise separators
+  const parts = dateStr.trim().replace(/[-.\s]/g, '/').split('/');
   if (parts.length < 2) return Infinity;
+
   try {
     const day   = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
-    let   year  = parts.length > 2 ? parseInt(parts[2], 10) : new Date().getFullYear();
+    const month = parseInt(parts[1], 10) - 1;
+    let year    = parts.length > 2 ? parseInt(parts[2], 10) : new Date().getFullYear() % 100;
     if (year < 100) year += 2000;
+
     const d = new Date(year, month, day);
     return isNaN(d.getTime()) ? Infinity : d.getTime();
-  } catch (e) {
+  } catch {
     return Infinity;
   }
 }
 
 /**
- * Normalise a date string to a canonical key for deduplication.
- * Strips leading zeroes so '07/03/2026' and '7/3/2026' match.
+ * Normalise a DD/MM/YY date string to a canonical D/M/YYYY key for deduplication.
  */
 function normaliseDateKey(dateStr) {
   if (!dateStr) return '';
-  return dateStr
-    .replace(/-/g, '/')
-    .split('/')
-    .map((p) => String(parseInt(p, 10) || p))
-    .join('/');
+  // Dates are always DD/MM/YY
+  const parts = dateStr.trim().replace(/[-.\s]/g, '/').split('/');
+  if (parts.length < 2) return dateStr.trim();
+
+  const day   = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  let year    = parts.length > 2 ? parseInt(parts[2], 10) : new Date().getFullYear() % 100;
+  if (year < 100) year += 2000;
+
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return dateStr.trim();
+  return `${day}/${month}/${year}`; // canonical: no leading zeros
 }
 
 /**
@@ -418,7 +575,10 @@ function mergeAndSortDateGroups(groups) {
 
 // ── Analyse (batch multi-image) ──────────────────────────────────────────────
 async function analyseImages() {
-  const apiKey = document.getElementById('geminiApiKey').value.trim();
+  const provider = document.querySelector('input[name="ocrProvider"]:checked')?.value || 'gemini';
+  const apiKey = provider === 'groq'
+    ? document.getElementById('groqApiKey').value.trim()
+    : document.getElementById('geminiApiKey').value.trim();
 
   if (selectedFiles.length === 0) {
     showToast('⚠️ No images selected', 'error');
@@ -439,7 +599,12 @@ async function analyseImages() {
 
     const formData = new FormData();
     formData.append('image', file);
-    formData.append('api_key', apiKey);
+    formData.append('provider', provider);
+    if (provider === 'groq') {
+      formData.append('groq_api_key', apiKey);
+    } else {
+      formData.append('api_key', apiKey);
+    }
 
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -521,6 +686,17 @@ function hideBatchProgress() {
 // ── Review Section (date-grouped) ────────────────────────────────────────────
 let currentDateGroups = []; // Array of { date, date_confidence, patients[] }
 
+/** Apply normalizeTests to every patient in a list of date groups. */
+function applyTestNormalization(groups) {
+  return groups.map(g => ({
+    ...g,
+    patients: (g.patients || []).map(p => ({
+      ...p,
+      tests: normalizeTests(p.tests || '')
+    }))
+  }));
+}
+
 function populateReviewSection(data) {
   // Build date groups from response
   let rawGroups;
@@ -538,6 +714,9 @@ function populateReviewSection(data) {
       patients: data.patients || []
     }];
   }
+
+  // Normalize test names against KNOWN_TESTS before rendering
+  rawGroups = applyTestNormalization(rawGroups);
 
   // Always merge same-date groups and sort chronologically before display
   currentDateGroups = mergeAndSortDateGroups(rawGroups);
@@ -620,7 +799,7 @@ function renderGroupTable(gIdx) {
       <td class="col-name">
         <input class="cell-input ${confClass(conf.name)}" 
                value="${esc((p.name || '').toUpperCase())}" 
-               oninput="this.value=this.value.toUpperCase(); updateGroupPatient(${gIdx}, ${pIdx}, 'name', this.value)"
+               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'name', this.value.toUpperCase())"
                placeholder="PATIENT NAME" />
       </td>
       <td class="col-age">
@@ -637,7 +816,7 @@ function renderGroupTable(gIdx) {
       <td class="col-tests">
         <input class="cell-input ${confClass(conf.tests)}"
                value="${esc((p.tests || '').toUpperCase())}"
-               oninput="this.value=this.value.toUpperCase(); updateGroupPatient(${gIdx}, ${pIdx}, 'tests', this.value)"
+               oninput="updateGroupPatient(${gIdx}, ${pIdx}, 'tests', this.value.toUpperCase())"
                placeholder="CBC, TSH, LFT..." />
       </td>
       <td class="col-amount">
@@ -779,8 +958,9 @@ async function appendToSheet() {
     return;
   }
 
-  // Build date_groups for API, filtering out crossed-out patients
-  const dateGroups = currentDateGroups
+  // Build date_groups for API — sort oldest→newest, filter out crossed-out patients
+  const dateGroups = [...currentDateGroups]
+    .sort((a, b) => parseDateForSort(a.date) - parseDateForSort(b.date))
     .map(g => ({
       date: g.date,
       patients: g.patients

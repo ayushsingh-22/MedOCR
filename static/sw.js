@@ -6,7 +6,7 @@
  *   - Navigation      → network-first with offline fallback
  */
 
-const CACHE_NAME = 'medocr-v3'; // ← bump this whenever static assets change
+const CACHE_NAME = 'medocr-v5'; // bumped: robust scheme guard + safe cache.put
 
 const PRECACHE_ASSETS = [
   '/',
@@ -47,7 +47,17 @@ self.addEventListener('message', (event) => {
 
 // ── Fetch strategy ───────────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  // Guard 1: bail immediately for any non-http(s) scheme.
+  // chrome-extension://, data:, blob:, etc. are NOT supported by the Cache API
+  // and will throw a TypeError on cache.put() / cache.match().
+  if (!event.request.url.startsWith('http')) return;
+
+  let url;
+  try {
+    url = new URL(event.request.url);
+  } catch {
+    return; // unparseable URL — let the browser handle it natively
+  }
 
   // 1. API and auth routes → network-only, never cache
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) {
@@ -77,7 +87,12 @@ self.addEventListener('fetch', (event) => {
       // Kick off a network fetch in the background to update the cache
       const networkFetch = fetch(event.request)
         .then((networkResponse) => {
-          if (networkResponse.ok && event.request.method === 'GET') {
+          // Guard 2: only cache valid same-origin http(s) GET responses
+          if (
+            networkResponse.ok &&
+            event.request.method === 'GET' &&
+            url.protocol.startsWith('http')
+          ) {
             cache.put(event.request, networkResponse.clone());
           }
           return networkResponse;

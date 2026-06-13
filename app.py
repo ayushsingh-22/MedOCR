@@ -53,9 +53,15 @@ def service_worker():
 
 @app.route("/health")
 def health():
-    """Lightweight keep-alive endpoint. Ping this every ~10 min to prevent
-    Render free-tier spin-down (e.g. via cron-job.org or UptimeRobot)."""
+    """Lightweight keep-alive endpoint."""
     return jsonify({"status": "ok"}), 200
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Serve the app icon as favicon so browsers don't log a 404."""
+    return send_from_directory(app.static_folder, "icon-192.png",
+                               mimetype="image/png")
 
 
 @app.route("/api/auth/status")
@@ -65,11 +71,14 @@ def auth_status():
     has_creds_file = os.path.exists(sw.CREDENTIALS_PATH)
     gemini_env_key = os.environ.get("GEMINI_API_KEY", "")
     has_server_gemini_key = bool(gemini_env_key and gemini_env_key != "your_gemini_api_key_here")
+    groq_env_key = os.environ.get("GROQ_API_KEY", "")
+    has_server_groq_key = bool(groq_env_key and groq_env_key != "your_groq_api_key_here")
     default_sheet_id = (os.environ.get("Google_Sheet_ID") or os.environ.get("GOOGLE_SHEET_ID") or "").strip()
     return jsonify({
         "authenticated": authenticated,
         "has_credentials_file": has_creds_file,
         "has_server_gemini_key": has_server_gemini_key,
+        "has_server_groq_key": has_server_groq_key,
         "default_sheet_id": default_sheet_id
     })
 
@@ -188,10 +197,18 @@ def upload_image():
     """
     Receive an image upload, run OCR + parsing via Gemini, return structured JSON.
     """
-    api_key = request.form.get("api_key") or os.environ.get("GEMINI_API_KEY", "")
-    
-    if not api_key or api_key == "your_gemini_api_key_here":
-        return jsonify({"error": "Gemini API key is required. Please enter it in the settings panel."}), 400
+    provider = (request.form.get("provider") or "gemini").lower().strip()
+    if provider not in ("gemini", "groq"):
+        provider = "gemini"
+
+    if provider == "groq":
+        api_key = request.form.get("groq_api_key") or os.environ.get("GROQ_API_KEY", "")
+        if not api_key or api_key == "your_groq_api_key_here":
+            return jsonify({"error": "Groq API key is required. Please enter it in the settings panel."}), 400
+    else:
+        api_key = request.form.get("api_key") or os.environ.get("GEMINI_API_KEY", "")
+        if not api_key or api_key == "your_gemini_api_key_here":
+            return jsonify({"error": "Gemini API key is required. Please enter it in the settings panel."}), 400
     
     if "image" not in request.files:
         return jsonify({"error": "No image file provided."}), 400
@@ -210,7 +227,7 @@ def upload_image():
     file.save(filepath)
     
     try:
-        result = parse_image(filepath, api_key)
+        result = parse_image(filepath, api_key, provider=provider)
         
         if result.get("error"):
             return jsonify({"error": result["error"]}), 500
