@@ -285,6 +285,11 @@ async function checkAuthStatus() {
       const userGroqKey = document.getElementById('groqApiKey').value.trim();
       serverGroqKeyHint.style.display = (data.has_server_groq_key && !userGroqKey) ? 'block' : 'none';
     }
+    const serverLlamaParseKeyHint = document.getElementById('serverLlamaParseKeyHint');
+    if (serverLlamaParseKeyHint) {
+      const userLlamaParseKey = document.getElementById('llamaParseApiKey').value.trim();
+      serverLlamaParseKeyHint.style.display = (data.has_server_llamaparse_key && !userLlamaParseKey) ? 'block' : 'none';
+    }
 
     if (!data.has_credentials_file) {
       chip.className = 'auth-chip auth-chip--disconnected';
@@ -343,11 +348,14 @@ async function handleLogout() {
 // ── Provider toggle ──────────────────────────────────────────────────────────
 function updateProviderUI() {
   const provider = document.querySelector('input[name="ocrProvider"]:checked')?.value || 'gemini';
-  document.getElementById('fieldGeminiKey').style.display = provider === 'gemini' ? '' : 'none';
-  document.getElementById('fieldGroqKey').style.display   = provider === 'groq'   ? '' : 'none';
+  document.getElementById('fieldGeminiKey').style.display    = provider === 'gemini'      ? '' : 'none';
+  document.getElementById('fieldGroqKey').style.display      = provider === 'groq'        ? '' : 'none';
+  document.getElementById('fieldLlamaParseKey').style.display = provider === 'llamaparse' ? '' : 'none';
   const label = document.getElementById('btnAnalyseLabel');
   if (label) {
-    label.textContent = provider === 'groq' ? 'Analyse with Groq AI' : 'Analyse with Gemini AI';
+    if (provider === 'groq')        label.textContent = 'Analyse with Groq AI';
+    else if (provider === 'llamaparse') label.textContent = 'Analyse with LlamaParse';
+    else                            label.textContent = 'Analyse with Gemini AI';
   }
   localStorage.setItem('medocr_provider', provider);
   // Refresh key hints
@@ -373,12 +381,19 @@ document.addEventListener('DOMContentLoaded', () => {
   checkAuthStatus();
 
   // API key toggles
-  document.getElementById('toggleApiKey').addEventListener('click', () => {
+  const toggleApiKeyBtn = document.getElementById('toggleApiKey');
+  if (toggleApiKeyBtn) toggleApiKeyBtn.addEventListener('click', () => {
     const input = document.getElementById('geminiApiKey');
     input.type = input.type === 'password' ? 'text' : 'password';
   });
-  document.getElementById('toggleGroqKey').addEventListener('click', () => {
+  const toggleGroqKeyBtn = document.getElementById('toggleGroqKey');
+  if (toggleGroqKeyBtn) toggleGroqKeyBtn.addEventListener('click', () => {
     const input = document.getElementById('groqApiKey');
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+  const toggleLlamaParseKeyBtn = document.getElementById('toggleLlamaParseKey');
+  if (toggleLlamaParseKeyBtn) toggleLlamaParseKeyBtn.addEventListener('click', () => {
+    const input = document.getElementById('llamaParseApiKey');
     input.type = input.type === 'password' ? 'text' : 'password';
   });
 
@@ -387,6 +402,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (savedKey) document.getElementById('geminiApiKey').value = savedKey;
   const savedGroqKey = localStorage.getItem('medocr_groq_api_key');
   if (savedGroqKey) document.getElementById('groqApiKey').value = savedGroqKey;
+  const savedLlamaParseKey = localStorage.getItem('medocr_llamaparse_api_key');
+  if (savedLlamaParseKey) document.getElementById('llamaParseApiKey').value = savedLlamaParseKey;
   const savedProvider = localStorage.getItem('medocr_provider');
   if (savedProvider) {
     const radio = document.querySelector(`input[name="ocrProvider"][value="${savedProvider}"]`);
@@ -406,6 +423,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('groqApiKey').addEventListener('change', e => {
     localStorage.setItem('medocr_groq_api_key', e.target.value);
+    checkAuthStatus();
+  });
+  document.getElementById('llamaParseApiKey').addEventListener('change', e => {
+    localStorage.setItem('medocr_llamaparse_api_key', e.target.value);
     checkAuthStatus();
   });
   document.getElementById('sheetId').addEventListener('change', e => {
@@ -576,9 +597,14 @@ function mergeAndSortDateGroups(groups) {
 // ── Analyse (batch multi-image) ──────────────────────────────────────────────
 async function analyseImages() {
   const provider = document.querySelector('input[name="ocrProvider"]:checked')?.value || 'gemini';
-  const apiKey = provider === 'groq'
-    ? document.getElementById('groqApiKey').value.trim()
-    : document.getElementById('geminiApiKey').value.trim();
+  let apiKey;
+  if (provider === 'groq') {
+    apiKey = document.getElementById('groqApiKey').value.trim();
+  } else if (provider === 'llamaparse') {
+    apiKey = document.getElementById('llamaParseApiKey').value.trim();
+  } else {
+    apiKey = document.getElementById('geminiApiKey').value.trim();
+  }
 
   if (selectedFiles.length === 0) {
     showToast('⚠️ No images selected', 'error');
@@ -602,6 +628,8 @@ async function analyseImages() {
     formData.append('provider', provider);
     if (provider === 'groq') {
       formData.append('groq_api_key', apiKey);
+    } else if (provider === 'llamaparse') {
+      formData.append('llamaparse_api_key', apiKey);
     } else {
       formData.append('api_key', apiKey);
     }

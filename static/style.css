@@ -299,6 +299,7 @@ body {
 /* ── OCR Provider toggle ──────────────────────────────────────────────────── */
 .provider-toggle {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .provider-option {

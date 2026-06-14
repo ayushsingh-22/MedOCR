@@ -73,12 +73,15 @@ def auth_status():
     has_server_gemini_key = bool(gemini_env_key and gemini_env_key != "your_gemini_api_key_here")
     groq_env_key = os.environ.get("GROQ_API_KEY", "")
     has_server_groq_key = bool(groq_env_key and groq_env_key != "your_groq_api_key_here")
+    llamaparse_env_key = os.environ.get("LLAMAPARSE_API_KEY", "")
+    has_server_llamaparse_key = bool(llamaparse_env_key and llamaparse_env_key != "your_llamaparse_api_key_here")
     default_sheet_id = (os.environ.get("Google_Sheet_ID") or os.environ.get("GOOGLE_SHEET_ID") or "").strip()
     return jsonify({
         "authenticated": authenticated,
         "has_credentials_file": has_creds_file,
         "has_server_gemini_key": has_server_gemini_key,
         "has_server_groq_key": has_server_groq_key,
+        "has_server_llamaparse_key": has_server_llamaparse_key,
         "default_sheet_id": default_sheet_id
     })
 
@@ -198,13 +201,17 @@ def upload_image():
     Receive an image upload, run OCR + parsing via Gemini, return structured JSON.
     """
     provider = (request.form.get("provider") or "gemini").lower().strip()
-    if provider not in ("gemini", "groq"):
+    if provider not in ("gemini", "groq", "llamaparse"):
         provider = "gemini"
 
     if provider == "groq":
         api_key = request.form.get("groq_api_key") or os.environ.get("GROQ_API_KEY", "")
         if not api_key or api_key == "your_groq_api_key_here":
             return jsonify({"error": "Groq API key is required. Please enter it in the settings panel."}), 400
+    elif provider == "llamaparse":
+        api_key = request.form.get("llamaparse_api_key") or os.environ.get("LLAMAPARSE_API_KEY", "")
+        if not api_key or api_key == "your_llamaparse_api_key_here":
+            return jsonify({"error": "LlamaParse API key is required. Please enter it in the settings panel."}), 400
     else:
         api_key = request.form.get("api_key") or os.environ.get("GEMINI_API_KEY", "")
         if not api_key or api_key == "your_gemini_api_key_here":

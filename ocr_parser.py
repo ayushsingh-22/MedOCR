@@ -226,7 +226,7 @@ def parse_image(image_path: str, api_key: str, provider: str = "gemini") -> dict
     ----------
     image_path : str   Path to the image file.
     api_key    : str   API key for the chosen provider.
-    provider   : str   "gemini" (default) or "groq".
+    provider   : str   "gemini" (default), "groq", or "llamaparse".
 
     Returns
     -------
@@ -235,6 +235,8 @@ def parse_image(image_path: str, api_key: str, provider: str = "gemini") -> dict
     """
     if provider == "groq":
         return _parse_image_groq(image_path, api_key)
+    if provider == "llamaparse":
+        return _parse_image_llamaparse(image_path, api_key)
     return _parse_image_gemini(image_path, api_key)
 
 
@@ -332,3 +334,212 @@ def _parse_image_groq(image_path: str, api_key: str) -> dict:
     return _error_response(
         "All Groq models failed.\n" + "\n".join(errors)
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LlamaParse provider  (cloud document-parsing API by LlamaIndex)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Correct routes — from llama_cloud_services.parse.base constants (no /v1/ prefix)
+_LLAMAPARSE_BASE        = "https://api.cloud.llamaindex.ai"
+_LLAMAPARSE_UPLOAD_URL  = f"{_LLAMAPARSE_BASE}/api/parsing/upload"
+_LLAMAPARSE_JOB_URL     = f"{_LLAMAPARSE_BASE}/api/parsing/job/{{}}"
+_LLAMAPARSE_RESULT_URL  = f"{_LLAMAPARSE_BASE}/api/parsing/job/{{}}/result/markdown"
+
+
+def _extract_json_from_text(text: str) -> str:
+    """
+    Try to find and extract a JSON object from free-form text.
+    LlamaParse may return JSON wrapped in prose or markdown — this
+    locates the outermost { ... } block and returns it.
+    """
+    # First try: whole text is already JSON / fenced JSON
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\n?", "", stripped)
+        stripped = re.sub(r"\n?```$", "", stripped.strip())
+
+    if stripped.startswith("{"):
+        return stripped
+
+    # Second try: find first { and last } in the raw text
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+
+    return stripped  # return as-is; caller will raise JSONDecodeError
+
+
+def _llamaparse_to_structured(raw_text: str, llamaparse_api_key: str) -> dict:
+    """
+    Two-step pipeline:
+      1. Try to parse raw_text directly as JSON (handles cases where
+         LlamaParse followed the parsing_instruction perfectly).
+      2. If that fails, send the extracted text to Gemini (using
+         GEMINI_API_KEY from env) so it can reformat into our schema.
+      3. If Gemini is also unavailable, return a clear error.
+    """
+    # ── Attempt 1: parse raw text directly ───────────────────────────────────
+    candidate = _extract_json_from_text(raw_text)
+    try:
+        return _parse_ocr_text(candidate)
+    except (json.JSONDecodeError, Exception):
+        pass
+
+    # ── Attempt 2: Gemini re-format (server key only — no extra key needed) ──
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if gemini_key and gemini_key not in ("", "your_gemini_api_key_here"):
+        try:
+            prompt = (
+                OCR_PROMPT
+                + "\n\nThe following is the raw OCR text already extracted from "
+                "the image. Do NOT describe an image — use only this text:\n\n"
+                + raw_text
+            )
+            with genai.Client(api_key=gemini_key) as client:
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                    ),
+                )
+            return _parse_ocr_text((response.text or "").strip())
+        except Exception as gemini_err:
+            return _error_response(
+                f"LlamaParse extracted text but Gemini re-format failed: {gemini_err}. "
+                f"LlamaParse raw output: {raw_text[:400]}"
+            )
+
+    return _error_response(
+        "LlamaParse extracted text but could not parse it as structured JSON. "
+        "Set GEMINI_API_KEY on the server (or enter a Gemini key in the UI) to "
+        "enable automatic re-formatting. "
+        f"LlamaParse raw output: {raw_text[:400]}"
+    )
+
+
+def _parse_image_llamaparse(image_path: str, api_key: str) -> dict:
+    """
+    Upload image to LlamaParse, poll for completion, then parse the
+    extracted text into structured patient data.
+
+    Pipeline:
+      image → LlamaParse OCR → raw markdown/text
+            → JSON extraction (direct) OR Gemini re-format fallback
+            → structured patient dict
+    """
+    import time
+    try:
+        import requests as _requests
+    except ImportError:
+        return _error_response(
+            "The 'requests' package is not installed. Run: pip install requests"
+        )
+
+    try:
+        image_bytes = preprocess_image(image_path)
+    except Exception as e:
+        return _error_response(f"Image preprocessing failed: {str(e)}")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
+
+    # ── Step 1: Upload the image (multipart form) ─────────────────────────────
+    try:
+        upload_resp = _requests.post(
+            _LLAMAPARSE_UPLOAD_URL,
+            headers=headers,
+            files={"file": ("image.jpg", image_bytes, "image/jpeg")},
+            data={
+                "parsing_instruction": OCR_PROMPT,
+                "result_type": "markdown",
+                "language": "en",
+            },
+            timeout=60,
+        )
+        upload_resp.raise_for_status()
+        resp_json = upload_resp.json()
+        job_id = resp_json.get("id") or resp_json.get("job_id")
+        if not job_id:
+            return _error_response(
+                f"LlamaParse upload: no job ID in response: {upload_resp.text[:300]}"
+            )
+    except _requests.exceptions.HTTPError as e:
+        body = ""
+        try:
+            body = e.response.text[:400]
+        except Exception:
+            pass
+        return _error_response(
+            f"LlamaParse upload failed (HTTP {e.response.status_code}): {body}"
+        )
+    except Exception as e:
+        return _error_response(f"LlamaParse upload failed: {str(e)}")
+
+    # ── Step 2: Poll until job completes (up to ~2 min) ───────────────────────
+    for attempt in range(40):
+        time.sleep(3)
+        try:
+            status_resp = _requests.get(
+                _LLAMAPARSE_JOB_URL.format(job_id),
+                headers=headers,
+                timeout=15,
+            )
+            status_resp.raise_for_status()
+            status_data = status_resp.json()
+            status = status_data.get("status", "PENDING").upper()
+            if status == "SUCCESS":
+                break
+            if status in ("ERROR", "CANCELLED", "PARTIAL_SUCCESS"):
+                error_detail = status_data.get("error") or status_data.get("message") or str(status_data)
+                return _error_response(
+                    f"LlamaParse job ended with status '{status}': {error_detail}"
+                )
+            # PENDING / IN_PROGRESS — keep waiting
+        except _requests.exceptions.HTTPError as e:
+            return _error_response(
+                f"LlamaParse status check failed (HTTP {e.response.status_code}): {e.response.text[:200]}"
+            )
+        except Exception as e:
+            return _error_response(f"LlamaParse status check failed: {str(e)}")
+    else:
+        return _error_response(
+            f"LlamaParse job timed out after {40 * 3} seconds (job_id={job_id})."
+        )
+
+    # ── Step 3: Fetch the markdown result ────────────────────────────────────
+    raw_text = ""
+    try:
+        result_resp = _requests.get(
+            _LLAMAPARSE_RESULT_URL.format(job_id),
+            headers=headers,
+            timeout=30,
+        )
+        result_resp.raise_for_status()
+        result_data = result_resp.json()
+        raw_text = result_data.get("markdown") or ""
+        if not raw_text:
+            pages = result_data.get("pages") or []
+            raw_text = "\n".join(
+                p.get("md") or p.get("text") or "" for p in pages
+            )
+    except _requests.exceptions.HTTPError as e:
+        return _error_response(
+            f"LlamaParse result fetch failed (HTTP {e.response.status_code}): {e.response.text[:200]}"
+        )
+    except Exception as e:
+        return _error_response(f"LlamaParse result fetch failed: {str(e)}")
+
+    raw_text = raw_text.strip()
+    if not raw_text:
+        return _error_response("LlamaParse returned empty text — nothing was extracted from the image.")
+
+    # ── Step 4: Convert extracted text → structured JSON ─────────────────────
+    result = _llamaparse_to_structured(raw_text, api_key)
+    if not result.get("error"):
+        result["model_used"] = "llamaparse"
+    return result
