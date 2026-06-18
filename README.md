@@ -20,21 +20,20 @@ MedOCR is a Flask web app (also installable as a PWA) that takes a photo of hand
 
 ## Project Structure
 
-| File / Folder | Purpose |
-|---|---------|
-| `app.py` | Flask server and API routes |
-| `ocr_parser.py` | Multi-provider OCR (Gemini, Groq, LlamaParse) and image pre-processing |
-| `sheets_writer.py` | Google OAuth + Sheets append logic |
-| `templates/index.html` | Main web UI |
-| `static/app.js` | Frontend behaviour (upload, review, append, provider selection) |
-| `static/style.css` | UI styling |
-| `static/sw.js` | Service worker (PWA offline cache) |
-| `static/manifest.json` | Web App Manifest (PWA metadata and icons) |
-| `Procfile` | Gunicorn start command for Render/Railway |
-| `requirements.txt` | Python dependencies |
-| `.env.example` | Environment variable template |
-| `credentials.json` | Google OAuth client credentials (you provide) |
-| `token.json` | OAuth token cache (auto-generated after login) |
+| File / Folder            | Purpose                                                                |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `app.py`               | Flask server and API routes                                            |
+| `ocr_parser.py`        | Multi-provider OCR (Gemini, Groq, LlamaParse) and image pre-processing |
+| `sheets_writer.py`     | Google OAuth + Sheets append logic                                     |
+| `templates/index.html` | Main web UI                                                            |
+| `static/app.js`        | Frontend behaviour (upload, review, append, provider selection)        |
+| `static/style.css`     | UI styling                                                             |
+| `static/sw.js`         | Service worker (PWA offline cache)                                     |
+| `static/manifest.json` | Web App Manifest (PWA metadata and icons)                              |
+| `Procfile`             | Gunicorn start command for Render/Railway                              |
+| `requirements.txt`     | Python dependencies                                                    |
+| `.env.example`         | Environment variable template                                          |
+| `credentials.json`     | Google OAuth client credentials (you provide)                          |
 
 ## Prerequisites
 
@@ -73,6 +72,7 @@ REDIRECT_URI=http://localhost:5000/auth/callback
 ```
 
 Notes:
+
 - `GEMINI_API_KEY`, `GROQ_API_KEY`, and `LLAMAPARSE_API_KEY` can all be entered in the UI at runtime — no `.env` entry required.
 - Only one provider's key is needed; the others are optional.
 - `GOOGLE_SHEET_ID` is optional because you can enter the Sheet ID in the UI.
@@ -85,6 +85,7 @@ Notes:
 4. Download the client JSON and save it as `credentials.json` in the project root.
 
 The app uses callback URL:
+
 - `http://localhost:5000/auth/callback`
 
 ### 4. Run the app
@@ -94,29 +95,31 @@ python app.py
 ```
 
 Open:
+
 - `http://localhost:5000`
 
 ## Usage Flow
 
 1. **Settings**
+
    - Select your OCR provider (Gemini, Groq, or LlamaParse).
    - Enter the corresponding API key.
    - Enter Google Sheet ID and optional Sheet tab name.
    - Click `Connect Account` and complete Google OAuth.
-
 2. **Upload**
-   - Drag and drop or select an image.
 
+   - Drag and drop or select an image.
 3. **Analyse**
+
    - Click `Analyse with AI` — the selected provider processes the image.
    - If multiple dates are detected in the image, results are grouped by date automatically.
-
 4. **Review**
+
    - Edit name, age, gender, tests, amount as needed.
    - Fields with low OCR confidence are highlighted.
    - Use `Skip` for crossed-out entries.
-
 5. **Append**
+
    - Click `Append to Google Sheet`.
 
 ## PWA — Install as an App
@@ -135,6 +138,7 @@ This project is a Flask backend app, so use a Python host (Render/Railway/Fly.io
 ### 1. Push the repo to GitHub
 
 Make sure these are **not** committed:
+
 - `.env`
 - `credentials.json`
 - `token.json`
@@ -142,6 +146,7 @@ Make sure these are **not** committed:
 ### 2. Create a Render Web Service
 
 Use these settings:
+
 - Runtime: `Python`
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `python -m gunicorn app:app --bind 0.0.0.0:$PORT`
@@ -151,6 +156,7 @@ Use these settings:
 ### 3. Configure Environment Variables in Render
 
 Set:
+
 - `FLASK_SECRET_KEY` = strong random string
 - `GEMINI_API_KEY` = your Gemini key (if using Gemini provider)
 - `GROQ_API_KEY` = your Groq key (if using Groq provider)
@@ -159,6 +165,7 @@ Set:
 - `REDIRECT_URI` = `https://<your-render-domain>/auth/callback`
 
 Optional path overrides:
+
 - `GOOGLE_OAUTH_CREDENTIALS_PATH`
 - `TOKEN_PATH`
 
@@ -169,11 +176,13 @@ The app requires `credentials.json` for Google OAuth. In production, provide it 
 ### 5. Update Google Cloud OAuth redirect URI
 
 In Google Cloud Console, add this exact redirect URI to your OAuth client:
+
 - `https://<your-render-domain>/auth/callback`
 
 ### 6. Deploy and test
 
 After deploy:
+
 1. Open your Render URL.
 2. Click `Connect Account` and complete Google login.
 3. Upload an image and run OCR.
@@ -183,11 +192,12 @@ After deploy:
 
 Columns written:
 
-| A | B | C | D |
-|---|---|---|---|
+| A    | B    | C    | D      |
+| ---- | ---- | ---- | ------ |
 | Date | Name | Test | Amount |
 
 Row formatting behavior:
+
 - Date is formatted to `D Mon YYYY` (example: `7 Mar 2026`).
 - For a batch, date appears only on the first row.
 - Name is formatted as `NAME AGE/GENDER` (example: `RICHA 30/F`).
@@ -210,27 +220,35 @@ Row formatting behavior:
 ## Troubleshooting
 
 `credentials.json not found`
+
 - Put your downloaded OAuth client file in project root as `credentials.json`.
 
 `Gemini API key is required`
+
 - Enter a key in Settings (Gemini tab), or set `GEMINI_API_KEY` in `.env`.
 
 `Groq API key is required`
+
 - Enter a key in Settings (Groq tab), or set `GROQ_API_KEY` in `.env`.
 
 `LlamaParse API key is required`
+
 - Enter a key in Settings (LlamaParse tab), or set `LLAMAPARSE_API_KEY` in `.env`.
 
 `All Groq models failed`
+
 - Groq automatically tries all available vision models in order. Check your Groq key and quota.
 
 `Not authenticated`
+
 - Click `Connect Account` and complete Google sign-in.
 
 `Amount must be a number`
+
 - Use plain numeric values only (example: `1200`, not `1200P`).
 
 `Google Sheets API error`
+
 - Confirm Sheets API is enabled and your account has edit access to the sheet.
 
 ## Security Notes
