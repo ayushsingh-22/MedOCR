@@ -83,6 +83,28 @@ def is_authenticated() -> bool:
     return get_credentials() is not None
 
 
+def _get_flow(**kwargs) -> Flow:
+    """
+    Build a google_auth_oauthlib Flow from credentials.json file or
+    from the GOOGLE_CREDENTIALS_JSON environment variable (used in
+    production deployments where the file cannot be committed).
+    """
+    env_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    if env_json:
+        try:
+            client_config = json.loads(env_json)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"GOOGLE_CREDENTIALS_JSON is not valid JSON: {e}")
+        return Flow.from_client_config(client_config, **kwargs)
+
+    if not os.path.exists(CREDENTIALS_PATH):
+        raise FileNotFoundError(
+            "credentials.json not found. Either place it in the project root or set "
+            "the GOOGLE_CREDENTIALS_JSON environment variable with the file contents."
+        )
+    return Flow.from_client_secrets_file(CREDENTIALS_PATH, **kwargs)
+
+
 def get_auth_url() -> tuple:
     """Generate Google OAuth authorization URL — no PKCE, pure server-side flow.
 
@@ -93,18 +115,7 @@ def get_auth_url() -> tuple:
     and explicitly setting code_challenge_method=None.
     Returns (auth_url, state, None).
     """
-    if not os.path.exists(CREDENTIALS_PATH):
-        raise FileNotFoundError(
-            "credentials.json not found. Please download it from Google Cloud Console "
-            "(APIs & Services → Credentials → OAuth 2.0 Client IDs → Web Application) "
-            f"and place it in the same folder as this app: {BASE_DIR}"
-        )
-
-    flow = Flow.from_client_secrets_file(
-        CREDENTIALS_PATH,
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI,
-    )
+    flow = _get_flow(scopes=SCOPES, redirect_uri=REDIRECT_URI)
 
     # Call the underlying requests_oauthlib session directly so we can
     # pass code_challenge_method=None — this guarantees no PKCE params
@@ -123,12 +134,7 @@ def handle_oauth_callback(code: str, state: str) -> bool:
     """Exchange authorization code for credentials and save to token.json.
     No PKCE was used, so no code_verifier is needed.
     """
-    flow = Flow.from_client_secrets_file(
-        CREDENTIALS_PATH,
-        scopes=SCOPES,
-        state=state,
-        redirect_uri=REDIRECT_URI,
-    )
+    flow = _get_flow(scopes=SCOPES, state=state, redirect_uri=REDIRECT_URI)
     # fetch_token without code_verifier — matches the no-PKCE auth URL
     flow.fetch_token(code=code)
     creds = flow.credentials
