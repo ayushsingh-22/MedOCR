@@ -18,3 +18,15 @@ __pycache__/app.cpython-313.pyc
 __pycache__/sheets_writer.cpython-313.pyc
 __pycache__/app.cpython-313.pyc
 __pycache__/sheets_writer.cpython-313.pyc
+
+# Android (android/)
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/.kotlin/
+android/*.iml
+android/app/*.iml
+android/captures/
+android/.cxx/

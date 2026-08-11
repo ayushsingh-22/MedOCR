@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base app theme — Compose owns all real theming; this just satisfies
+         the manifest's requirement for an android:theme and configures the
+         system splash screen before Compose content is set. -->
+    <style name="Theme.MedOCR" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.MedOCR.Splash" parent="Theme.MedOCR">
+        <item name="android:windowBackground">@color/splash_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

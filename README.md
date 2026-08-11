@@ -2,6 +2,8 @@
 
 MedOCR is a Flask web app (also installable as a PWA) that takes a photo of handwritten pathology/lab notes, uses an AI Vision model to extract patient entries, lets you review and edit the result, and appends clean rows to Google Sheets.
 
+📱 **Native Android app** (Kotlin + Jetpack Compose) with full feature parity lives in [`android/`](android/README.md).
+
 ## Features
 
 - Upload handwritten list images (`png`, `jpg`, `jpeg`, `webp`, `bmp`, `tiff`) up to 16 MB.

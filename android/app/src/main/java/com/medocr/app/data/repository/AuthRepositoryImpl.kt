@@ -1,0 +1,90 @@
+package com.medocr.app.data.repository
+
+import android.content.Context
+import android.content.Intent
+import androidx.activity.result.IntentSenderRequest
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.Scope
+import com.medocr.app.data.model.AuthState
+import com.medocr.app.util.await
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private const val SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+
+/**
+ * Wraps Google Identity's Authorization API to get an OAuth access token scoped
+ * to Sheets — no separate sign-in step, matching the web app's single
+ * "Connect Account" button. Google Play Services resolves the OAuth client by
+ * this app's package name + signing certificate, so no client ID needs to be
+ * embedded here — see the Android README for the one-time Cloud Console setup
+ * (register an "Android" OAuth client with this app's SHA-1 fingerprint).
+ */
+@Singleton
+class AuthRepositoryImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
+) : AuthRepository {
+
+    private val authorizationClient by lazy { Identity.getAuthorizationClient(context) }
+    private var cachedAccessToken: String? = null
+
+    private val _authState = MutableStateFlow(AuthState.UNKNOWN)
+    override val authState: StateFlow<AuthState> = _authState.asStateFlow()
+
+    private fun buildRequest(): AuthorizationRequest =
+        AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(SHEETS_SCOPE)))
+            .build()
+
+    override suspend fun tryAuthorize(): AuthOutcome = try {
+        val result = authorizationClient.authorize(buildRequest()).await()
+        processResult(result)
+    } catch (e: Exception) {
+        _authState.value = AuthState.DISCONNECTED
+        AuthOutcome.Failed(e.message ?: "Authorization failed.")
+    }
+
+    override fun handleAuthorizationResult(data: Intent?): AuthOutcome = try {
+        val result = authorizationClient.getAuthorizationResultFromIntent(data)
+        processResult(result)
+    } catch (e: Exception) {
+        _authState.value = AuthState.DISCONNECTED
+        AuthOutcome.Failed(e.message ?: "Authorization was cancelled or failed.")
+    }
+
+    private fun processResult(result: AuthorizationResult): AuthOutcome {
+        val token = result.accessToken
+        val pendingIntent = result.pendingIntent
+        return when {
+            token != null -> {
+                cachedAccessToken = token
+                _authState.value = AuthState.CONNECTED
+                AuthOutcome.Authorized(token)
+            }
+            pendingIntent != null -> {
+                val request = IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                AuthOutcome.ResolutionRequired(request)
+            }
+            else -> {
+                _authState.value = AuthState.DISCONNECTED
+                AuthOutcome.Failed("Google did not return an access token or a consent screen.")
+            }
+        }
+    }
+
+    override suspend fun getAccessToken(): String? {
+        cachedAccessToken?.let { return it }
+        return (tryAuthorize() as? AuthOutcome.Authorized)?.accessToken
+    }
+
+    override fun signOut() {
+        cachedAccessToken = null
+        _authState.value = AuthState.DISCONNECTED
+    }
+}
