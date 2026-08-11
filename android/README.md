@@ -1,5 +1,7 @@
 # MedOCR — Android (Kotlin + Jetpack Compose)
 
+[![Android Build](https://github.com/ayushsingh-22/MedOCR/actions/workflows/android-build.yml/badge.svg)](https://github.com/ayushsingh-22/MedOCR/actions/workflows/android-build.yml)
+
 Native Android port of the MedOCR web app: scan handwritten pathology/lab
 lists, run AI OCR (Gemini / Groq / LlamaParse), review the extracted patients,
 and append clean rows straight into a Google Sheet — all on-device, no server.
@@ -57,6 +59,34 @@ behavior matches the web app exactly.
 API keys are entered in-app (no `.env` file) and stored encrypted on-device
 via `EncryptedSharedPreferences` (AES-256-GCM) — each test device holds its
 own key.
+
+## Build from the command line
+
+The committed wrapper (`gradlew`/`gradlew.bat` + `gradle-wrapper.jar`) means
+no separately-installed Gradle is needed — only a JDK 17+. From the `android/`
+directory:
+
+```
+./gradlew assembleDebug          # builds app/build/outputs/apk/debug/app-debug.apk
+./gradlew installDebug           # builds + installs on a connected device/emulator
+./gradlew clean assembleDebug    # from-scratch build, for a true clean-room check
+```
+
+On Windows use `gradlew.bat` instead of `./gradlew`. A real run of the last
+command against this exact repo:
+
+```
+$ ./gradlew clean assembleDebug --console=plain
+...
+BUILD SUCCESSFUL in 6s
+39 actionable tasks: 16 executed, 23 from cache
+```
+
+This is also verified continuously: every push to `android/**` runs
+[`.github/workflows/android-build.yml`](../.github/workflows/android-build.yml)
+on a clean GitHub Actions Ubuntu runner (no pre-existing Gradle/JDK caches)
+and uploads the resulting debug APK as a build artifact — see the badge at
+the top of this file.
 
 ## Optional: enabling "Append to Google Sheet"
 
