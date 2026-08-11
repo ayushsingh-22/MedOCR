@@ -17,4 +17,7 @@ interface OcrRepository {
         apiKey: String,
         geminiFallbackApiKey: String? = null,
     ): OcrResult
+
+    /** Lightweight connectivity check — confirms the key is accepted without spending OCR quota. */
+    suspend fun testApiKey(provider: Provider, apiKey: String): Result<Unit>
 }

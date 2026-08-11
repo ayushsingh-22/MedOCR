@@ -81,7 +81,7 @@ fun UploadSection(
         onImagesPicked(listOf(SelectedImage(uri, "Camera photo")))
     }
 
-    StepCard(step = 2, title = "Upload Images", subtitle = "Photos of handwritten medical test lists", modifier = modifier) {
+    StepCard(step = 3, title = "Upload Images", subtitle = "Photos of handwritten medical test lists", modifier = modifier) {
         if (selectedImages.isEmpty()) {
             EmptyUploadZone(onGalleryClick = launchGallery, onCameraClick = launchCamera)
         } else {

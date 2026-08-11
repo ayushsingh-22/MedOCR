@@ -52,6 +52,37 @@ class OcrRepositoryImpl @Inject constructor(
         OcrResult(error = "${provider.displayName} OCR error: ${e.message}")
     }
 
+    override suspend fun testApiKey(provider: Provider, apiKey: String): Result<Unit> = try {
+        when (provider) {
+            Provider.GEMINI -> {
+                val response = geminiApi.listModels(apiKey)
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("Invalid Gemini API key (HTTP ${response.code()})."))
+                }
+            }
+            Provider.GROQ -> {
+                val response = groqApi.listModels("Bearer $apiKey")
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("Invalid Groq API key (HTTP ${response.code()})."))
+                }
+            }
+            Provider.LLAMAPARSE -> {
+                val response = llamaParseApi.checkAuth("Bearer $apiKey", "medocr-key-check")
+                if (response.code() == 401 || response.code() == 403) {
+                    Result.failure(IllegalStateException("Invalid LlamaParse API key (HTTP ${response.code()})."))
+                } else {
+                    Result.success(Unit)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Result.failure(IllegalStateException("Could not reach ${provider.displayName}: ${e.message}"))
+    }
+
     private suspend fun analyzeWithGemini(imageUri: Uri, apiKey: String): OcrResult {
         val base64 = ImageProcessor.toBase64(context, imageUri)
         val request = GeminiRequest(

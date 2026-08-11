@@ -13,13 +13,22 @@ data class BatchProgress(val current: Int, val total: Int, val message: String) 
     val fraction: Float get() = if (total <= 0) 0f else (current + 0.5f) / total
 }
 
+sealed interface KeyTestState {
+    data object Idle : KeyTestState
+    data object Testing : KeyTestState
+    data object Success : KeyTestState
+    data class Failure(val message: String) : KeyTestState
+}
+
 data class MainUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val provider: Provider = Provider.GEMINI,
     val apiKeys: Map<Provider, String> = emptyMap(),
+    val keyTestState: Map<Provider, KeyTestState> = emptyMap(),
     val sheetId: String = "",
     val sheetName: String = "Sheet1",
     val authState: AuthState = AuthState.UNKNOWN,
+    val authError: String? = null,
     val selectedImages: List<SelectedImage> = emptyList(),
     val isAnalyzing: Boolean = false,
     val batchProgress: BatchProgress? = null,

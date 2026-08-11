@@ -1,6 +1,5 @@
 package com.medocr.app.data.remote.dto
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -12,21 +11,24 @@ data class GeminiRequest(
 @Serializable
 data class GeminiContent(val parts: List<GeminiPart>)
 
+// Field names below are wire-format-sensitive: the Generative Language REST API
+// expects lowerCamelCase JSON keys (inlineData/mimeType/responseMimeType) —
+// snake_case here silently drops the image from the request.
 @Serializable
 data class GeminiPart(
     val text: String? = null,
-    @SerialName("inline_data") val inlineData: GeminiInlineData? = null,
+    val inlineData: GeminiInlineData? = null,
 )
 
 @Serializable
 data class GeminiInlineData(
-    @SerialName("mime_type") val mimeType: String,
+    val mimeType: String,
     val data: String,
 )
 
 @Serializable
 data class GeminiGenerationConfig(
-    @SerialName("response_mime_type") val responseMimeType: String = "application/json",
+    val responseMimeType: String = "application/json",
 )
 
 @Serializable

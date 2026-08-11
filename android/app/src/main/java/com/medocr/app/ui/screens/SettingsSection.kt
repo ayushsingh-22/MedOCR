@@ -1,7 +1,5 @@
 package com.medocr.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,61 +12,34 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.medocr.app.data.model.AuthState
 import com.medocr.app.data.model.Provider
-import com.medocr.app.ui.components.ApiKeyField
 import com.medocr.app.ui.components.AuthChip
 import com.medocr.app.ui.components.ProviderToggle
 import com.medocr.app.ui.components.StepCard
 
+/** Provider choice + Google Sheet target + Google account — API keys live in their own [ApiKeySection]. */
 @Composable
 fun SettingsSection(
     provider: Provider,
-    apiKeys: Map<Provider, String>,
     sheetId: String,
     sheetName: String,
     authState: AuthState,
+    authError: String?,
     onProviderSelected: (Provider) -> Unit,
-    onApiKeyChanged: (Provider, String) -> Unit,
     onSheetIdChanged: (String) -> Unit,
     onSheetNameChanged: (String) -> Unit,
     onConnectClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-
-    StepCard(step = 1, title = "Settings", subtitle = "Configure your API key and Google account", modifier = modifier) {
+    StepCard(step = 1, title = "Settings", subtitle = "Choose a provider and where results are saved", modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("🤖 OCR PROVIDER", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 ProviderToggle(selected = provider, onSelect = onProviderSelected)
-                Text(
-                    "Groq automatically cycles through all available vision models as fallback",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ApiKeyField(
-                    provider = provider,
-                    value = apiKeys[provider].orEmpty(),
-                    onValueChange = { onApiKeyChanged(provider, it) },
-                    onGetKeyClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(provider.getKeyUrl)))
-                    },
-                )
-                if (provider == Provider.LLAMAPARSE) {
-                    Text(
-                        "LlamaParse uses premium vision parsing. Jobs may take up to 2 minutes.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
 
             OutlinedTextField(
@@ -108,6 +79,14 @@ fun SettingsSection(
                             Text("Connect Account", fontWeight = FontWeight.SemiBold)
                         }
                     }
+                }
+                // Persistent (not just a transient snackbar) so a failure isn't missed.
+                if (authError != null) {
+                    Text(
+                        "⚠️ $authError",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }

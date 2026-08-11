@@ -44,10 +44,13 @@ data class GroqResponseMessage(val content: String? = null)
 @Serializable
 data class GroqError(val message: String? = null)
 
-/** Vision models tried in order — next one is used if the current one fails. */
+/**
+ * Vision-capable models tried in order — next one is used if the current one fails.
+ * The Llama 3.2/4 vision preview models this list originally shipped with have since
+ * been decommissioned by Groq; `qwen/qwen3.6-27b` is the current (as of mid-2026)
+ * vision-capable chat model. Kept as a list so a second option can be added back
+ * without another code change if Groq reintroduces one.
+ */
 val GROQ_VISION_MODELS = listOf(
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "llama-3.2-90b-vision-preview",
-    "llama-3.2-11b-vision-preview",
+    "qwen/qwen3.6-27b",
 )

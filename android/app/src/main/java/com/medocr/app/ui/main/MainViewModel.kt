@@ -87,6 +87,30 @@ class MainViewModel @Inject constructor(
 
     fun onApiKeyChanged(provider: Provider, value: String) {
         secureKeyStore.setKey(provider, value)
+        // A changed key invalidates whatever the last test result said.
+        _state.update { it.copy(keyTestState = it.keyTestState + (provider to KeyTestState.Idle)) }
+    }
+
+    fun onTestApiKeyClicked(provider: Provider) {
+        val apiKey = _state.value.apiKeys[provider].orEmpty()
+        if (apiKey.isBlank()) {
+            emitToast("⚠️ Enter a ${provider.displayName} API key first", ToastType.ERROR)
+            return
+        }
+        _state.update { it.copy(keyTestState = it.keyTestState + (provider to KeyTestState.Testing)) }
+        viewModelScope.launch {
+            val result = ocrRepository.testApiKey(provider, apiKey)
+            val newState = result.fold(
+                onSuccess = { KeyTestState.Success },
+                onFailure = { KeyTestState.Failure(it.message ?: "Test failed.") },
+            )
+            _state.update { it.copy(keyTestState = it.keyTestState + (provider to newState)) }
+            if (newState is KeyTestState.Success) {
+                emitToast("✅ ${provider.displayName} API key works!", ToastType.SUCCESS)
+            } else if (newState is KeyTestState.Failure) {
+                emitToast("❌ ${newState.message}", ToastType.ERROR)
+            }
+        }
     }
 
     fun onSheetIdChanged(value: String) {
@@ -101,28 +125,39 @@ class MainViewModel @Inject constructor(
 
     // ── Google auth ──────────────────────────────────────────────────────────
     fun onConnectAccountClicked() {
+        _state.update { it.copy(authError = null) }
         viewModelScope.launch {
             when (val outcome = authRepository.tryAuthorize()) {
                 is AuthOutcome.Authorized -> emitToast("✅ Google Account connected!", ToastType.SUCCESS)
                 is AuthOutcome.ResolutionRequired -> eventChannel.send(UiEvent.RequestAuthorization(outcome.intentSenderRequest))
-                is AuthOutcome.Failed -> emitToast(outcome.message, ToastType.ERROR)
+                is AuthOutcome.Failed -> failAuth(outcome.message)
             }
         }
     }
 
     fun onAuthorizationResult(data: Intent?) {
         when (val outcome = authRepository.handleAuthorizationResult(data)) {
-            is AuthOutcome.Authorized -> emitToast("✅ Google Account connected!", ToastType.SUCCESS)
+            is AuthOutcome.Authorized -> {
+                _state.update { it.copy(authError = null) }
+                emitToast("✅ Google Account connected!", ToastType.SUCCESS)
+            }
             is AuthOutcome.ResolutionRequired -> viewModelScope.launch {
                 eventChannel.send(UiEvent.RequestAuthorization(outcome.intentSenderRequest))
             }
-            is AuthOutcome.Failed -> emitToast(outcome.message, ToastType.ERROR)
+            is AuthOutcome.Failed -> failAuth(outcome.message)
         }
     }
 
     fun onDisconnectClicked() {
         authRepository.signOut()
+        _state.update { it.copy(authError = null) }
         emitToast("Disconnected from Google")
+    }
+
+    /** Surfaces an auth failure both as a transient toast and a persistent inline message. */
+    private fun failAuth(message: String) {
+        _state.update { it.copy(authError = message) }
+        emitToast(message, ToastType.ERROR)
     }
 
     // ── Image selection ──────────────────────────────────────────────────────
