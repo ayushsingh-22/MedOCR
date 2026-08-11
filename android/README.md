@@ -38,50 +38,61 @@ prompt, test-name fuzzy matcher, date parsing/merging, and Sheets row format
 are direct Kotlin ports of `ocr_parser.py` / `sheets_writer.py` / `app.js` so
 behavior matches the web app exactly.
 
-## Setup
+## Run it — nothing to configure first
 
-### 1. Open the project
+1. Open the `android/` folder directly in **Android Studio** (Ladybug/2024.2+
+   recommended, JDK 17+). Let Gradle sync — no placeholder values, API keys,
+   or `local.properties` entries are required for the project to build.
+2. Plug in a phone with **USB debugging** enabled (Settings → About phone →
+   tap "Build number" 7× to unlock Developer options → enable USB debugging),
+   or start any emulator — it'll appear in Android Studio's device dropdown.
+3. Click the green **▶ Run** button. The debug build installs and launches
+   straight away. Repeat on as many devices as you like — there's nothing
+   device-specific to set up.
+4. In the app: pick a provider in **Settings**, paste in your own Gemini /
+   Groq / LlamaParse API key (get-key links are inline), then **Upload** and
+   **Analyse**. This whole flow — scanning, OCR, and reviewing/editing
+   results — works immediately, with no Google Cloud setup at all.
 
-Open the `android/` folder directly in **Android Studio** (Ladybug/2024.2+
-recommended). Android Studio will generate the Gradle wrapper and sync
-automatically. JDK 17+ is required.
+API keys are entered in-app (no `.env` file) and stored encrypted on-device
+via `EncryptedSharedPreferences` (AES-256-GCM) — each test device holds its
+own key.
 
-### 2. API keys
+## Optional: enabling "Append to Google Sheet"
 
-No `.env` file — enter your Gemini / Groq / LlamaParse API key directly in
-the app's Settings card. Keys are encrypted at rest via
-`EncryptedSharedPreferences` (AES-256-GCM) and never leave the device except
-in the direct HTTPS request to that provider.
-
-### 3. Google Sheets access (one-time Cloud Console setup)
-
-The app calls the Sheets API directly with an OAuth access token obtained
-via Google Play Services' **Authorization API** — there's no `credentials.json`
-and no client secret embedded in the app. You only need to register the app
-once:
+Every screen works out of the box except the final **Append to Google
+Sheet** button, which needs a one-time Google Cloud Console registration
+(not a hosted service — see "Do I need to host anything?" below):
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), enable the
    **Google Sheets API** on your project.
 2. Under **APIs & Services → Credentials → Create Credentials → OAuth client ID**,
    choose **Android**.
-3. Set the package name to `com.medocr.app`.
-4. Get your signing certificate's SHA-1 and paste it in:
+3. Set the package name to `com.medocr.app` (the app's `applicationId` — it's
+   the same for every debug build installed via the Run button, so this is a
+   one-time step covering every test device you install on from this machine).
+4. Get your signing certificate's SHA-1. Once the Gradle wrapper exists
+   (Android Studio creates it on first sync), run:
    ```
    ./gradlew signingReport
    ```
-   (uses the debug keystore automatically for local builds — repeat this step
-   with your release keystore's SHA-1 before shipping a signed build).
-5. Save. No further code changes are needed — Play Services resolves the
-   registered OAuth client by package name + signing certificate at runtime.
+   and copy the SHA-1 under `Variant: debug`. Paste it into the OAuth client.
+   (Repeat with your release keystore's SHA-1 before shipping a signed build.)
+5. Save. No code changes needed — Play Services resolves the registered
+   OAuth client by package name + signing certificate at runtime.
 
 Tap **Connect Account** in Settings to grant the `spreadsheets` scope; the
-grant persists across app restarts (Google re-authorizes silently on cold
-start).
+grant persists across app restarts. If this step isn't done yet, tapping
+Connect shows a clear in-app message telling you so — it won't crash or
+block anything else.
 
-### 4. Run
+## Do I need to host anything (e.g. on Render)?
 
-Select the `app` run configuration and run on a device/emulator with Google
-Play Services (API 26+).
+**No.** The Android app never talks to the Flask backend — it calls
+Gemini/Groq/LlamaParse and the Google Sheets API **directly from the
+device**, using whatever API key you enter in Settings and the on-device
+Google Sheets authorization above. Render hosting is only used for the
+separate web/PWA version of MedOCR; it has no bearing on the Android app.
 
 ## Feature parity with the web app
 

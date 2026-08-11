@@ -6,6 +6,8 @@ import androidx.activity.result.IntentSenderRequest
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import com.medocr.app.data.model.AuthState
 import com.medocr.app.util.await
@@ -47,7 +49,7 @@ class AuthRepositoryImpl @Inject constructor(
         processResult(result)
     } catch (e: Exception) {
         _authState.value = AuthState.DISCONNECTED
-        AuthOutcome.Failed(e.message ?: "Authorization failed.")
+        AuthOutcome.Failed(friendlyMessage(e))
     }
 
     override fun handleAuthorizationResult(data: Intent?): AuthOutcome = try {
@@ -55,7 +57,25 @@ class AuthRepositoryImpl @Inject constructor(
         processResult(result)
     } catch (e: Exception) {
         _authState.value = AuthState.DISCONNECTED
-        AuthOutcome.Failed(e.message ?: "Authorization was cancelled or failed.")
+        AuthOutcome.Failed(friendlyMessage(e))
+    }
+
+    /**
+     * Play Services reports config problems as bare status codes (e.g. "10:").
+     * On a fresh test device this is almost always the Cloud Console OAuth
+     * client not being registered yet — surface that instead of a raw code.
+     */
+    private fun friendlyMessage(e: Exception): String {
+        val apiException = e as? ApiException ?: return e.message ?: "Authorization failed."
+        return when (apiException.statusCode) {
+            CommonStatusCodes.DEVELOPER_ERROR ->
+                "Google Sheets isn't set up for this app build yet. Register an \"Android\" " +
+                    "OAuth client for this package name + SHA-1 in Google Cloud Console " +
+                    "(see android/README.md) — everything else in the app works without this."
+            CommonStatusCodes.NETWORK_ERROR -> "No internet connection — check your network and try again."
+            CommonStatusCodes.CANCELED -> "Google sign-in was cancelled."
+            else -> apiException.message ?: "Authorization failed (code ${apiException.statusCode})."
+        }
     }
 
     private fun processResult(result: AuthorizationResult): AuthOutcome {
