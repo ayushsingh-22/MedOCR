@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,7 +75,7 @@ fun UploadSection(
         if (uris.isNotEmpty()) onImagesPicked(uris.map { SelectedImage(it, displayNameFor(context, it)) })
     }
     val launchGallery = {
-        galleryLauncher.launch(ActivityResultContracts.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
     val launchCamera = rememberCameraCapture { uri ->
         onImagesPicked(listOf(SelectedImage(uri, "Camera photo")))

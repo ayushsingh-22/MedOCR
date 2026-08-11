@@ -36,7 +36,7 @@ fun StepCard(
     subtitle: String,
     modifier: Modifier = Modifier,
     headerActions: @Composable (RowScope.() -> Unit)? = null,
-    content: @Composable ColumnScopeContent,
+    content: ColumnScopeContent,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
