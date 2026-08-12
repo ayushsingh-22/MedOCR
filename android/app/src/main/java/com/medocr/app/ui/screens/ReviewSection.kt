@@ -58,7 +58,7 @@ fun ReviewSection(
     onAppendClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    StepCard(step = 4, title = "Review & Edit", subtitle = "Correct any OCR errors before appending", modifier = modifier) {
+    StepCard(step = 3, title = "Review & Edit", subtitle = "Correct any OCR errors before appending", modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
             dateGroups.forEachIndexed { index, group ->
                 DateGroupCard(

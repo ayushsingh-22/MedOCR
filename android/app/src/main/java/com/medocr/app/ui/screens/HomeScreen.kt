@@ -12,7 +12,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -27,6 +29,7 @@ import com.medocr.app.ui.main.UiEvent
 fun HomeScreen(viewModel: MainViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showApiKeyScreen by remember { mutableStateOf(false) }
 
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         viewModel.onAuthorizationResult(result.data)
@@ -45,8 +48,26 @@ fun HomeScreen(viewModel: MainViewModel = hiltViewModel()) {
         }
     }
 
+    if (showApiKeyScreen) {
+        ApiKeyScreen(
+            provider = state.provider,
+            apiKey = state.currentApiKey,
+            testState = state.keyTestState[state.provider] ?: KeyTestState.Idle,
+            onApiKeyChanged = { viewModel.onApiKeyChanged(state.provider, it) },
+            onTestClick = { viewModel.onTestApiKeyClicked(state.provider) },
+            onBack = { showApiKeyScreen = false },
+        )
+        return
+    }
+
     Scaffold(
-        topBar = { MedOcrTopBar(themeMode = state.themeMode, onThemeToggle = viewModel::onThemeToggle) },
+        topBar = {
+            MedOcrTopBar(
+                themeMode = state.themeMode,
+                onThemeToggle = viewModel::onThemeToggle,
+                onApiKeyClick = { showApiKeyScreen = true },
+            )
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
@@ -68,16 +89,6 @@ fun HomeScreen(viewModel: MainViewModel = hiltViewModel()) {
                     onSheetNameChanged = viewModel::onSheetNameChanged,
                     onConnectClick = viewModel::onConnectAccountClicked,
                     onDisconnectClick = viewModel::onDisconnectClicked,
-                )
-            }
-
-            item(key = "apiKey") {
-                ApiKeySection(
-                    provider = state.provider,
-                    apiKey = state.currentApiKey,
-                    testState = state.keyTestState[state.provider] ?: KeyTestState.Idle,
-                    onApiKeyChanged = { viewModel.onApiKeyChanged(state.provider, it) },
-                    onTestClick = { viewModel.onTestApiKeyClicked(state.provider) },
                 )
             }
 

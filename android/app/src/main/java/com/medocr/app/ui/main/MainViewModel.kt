@@ -182,7 +182,7 @@ class MainViewModel @Inject constructor(
             return
         }
         if (current.currentApiKey.isBlank()) {
-            emitToast("⚠️ ${current.provider.displayName} API key is required. Enter it in Settings.", ToastType.ERROR)
+            emitToast("⚠️ ${current.provider.displayName} API key is required. Tap 🔑 at the top to add one.", ToastType.ERROR)
             return
         }
 

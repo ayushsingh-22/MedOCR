@@ -34,7 +34,7 @@ fun ApiKeySection(
 ) {
     val context = LocalContext.current
 
-    StepCard(step = 2, title = "API Key", subtitle = "For the ${provider.displayName} provider selected above", modifier = modifier) {
+    StepCard(step = 1, title = "API Key", subtitle = "For the ${provider.displayName} provider selected in Settings", modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             ApiKeyField(
                 provider = provider,

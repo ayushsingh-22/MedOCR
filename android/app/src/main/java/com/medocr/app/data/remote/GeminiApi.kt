@@ -24,6 +24,6 @@ interface GeminiApi {
 
     companion object {
         const val BASE_URL = "https://generativelanguage.googleapis.com/"
-        const val MODEL = "gemini-2.0-flash"
+        const val MODEL = "gemini-2.5-flash"
     }
 }

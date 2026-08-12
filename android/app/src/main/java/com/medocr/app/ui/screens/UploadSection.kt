@@ -81,19 +81,20 @@ fun UploadSection(
         onImagesPicked(listOf(SelectedImage(uri, "Camera photo")))
     }
 
-    StepCard(step = 3, title = "Upload Images", subtitle = "Photos of handwritten medical test lists", modifier = modifier) {
+    StepCard(step = 2, title = "Upload Images", subtitle = "Photos of handwritten medical test lists", modifier = modifier) {
         if (selectedImages.isEmpty()) {
             EmptyUploadZone(onGalleryClick = launchGallery, onCameraClick = launchCamera)
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ThumbnailGallery(images = selectedImages, onRemove = onRemoveImage)
 
+                Text(
+                    "${selectedImages.size} image${if (selectedImages.size != 1) "s" else ""} selected",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "${selectedImages.size} image${if (selectedImages.size != 1) "s" else ""} selected",
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(end = 4.dp).align(Alignment.CenterVertically),
-                    )
                     OutlinedButton(onClick = launchGallery, enabled = !isAnalyzing) { Text("🖼️ Add files") }
                     OutlinedButton(onClick = launchCamera, enabled = !isAnalyzing) { Text("📷 Camera") }
                     OutlinedButton(onClick = onClearAll, enabled = !isAnalyzing) { Text("✕ Clear all") }
