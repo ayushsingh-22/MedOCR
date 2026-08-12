@@ -21,20 +21,25 @@ object ImageProcessor {
     private const val MAX_DIMENSION = 2000
     private const val JPEG_QUALITY = 92
 
-    suspend fun toJpegBytes(context: Context, uri: Uri): ByteArray = withContext(Dispatchers.IO) {
+    suspend fun toJpegBytes(
+        context: Context,
+        uri: Uri,
+        maxDimension: Int = MAX_DIMENSION,
+        quality: Int = JPEG_QUALITY,
+    ): ByteArray = withContext(Dispatchers.IO) {
         val orientation = readExifOrientation(context, uri)
         val bounds = decodeBounds(context, uri)
-        val sampleSize = calculateInSampleSize(bounds.first, bounds.second, MAX_DIMENSION * 2)
+        val sampleSize = calculateInSampleSize(bounds.first, bounds.second, maxDimension * 2)
 
         val rawBitmap = context.contentResolver.openInputStream(uri)?.use { input ->
             BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
         } ?: error("Unable to decode image")
 
         val rotated = applyExifRotation(rawBitmap, orientation)
-        val resized = downscaleIfNeeded(rotated)
+        val resized = downscaleIfNeeded(rotated, maxDimension)
 
         ByteArrayOutputStream().use { out ->
-            resized.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            resized.compress(Bitmap.CompressFormat.JPEG, quality, out)
             if (resized !== rotated) resized.recycle()
             if (rotated !== rawBitmap) rawBitmap.recycle()
             rotated.recycle()
@@ -42,8 +47,12 @@ object ImageProcessor {
         }
     }
 
-    suspend fun toBase64(context: Context, uri: Uri): String =
-        Base64.encodeToString(toJpegBytes(context, uri), Base64.NO_WRAP)
+    suspend fun toBase64(
+        context: Context,
+        uri: Uri,
+        maxDimension: Int = MAX_DIMENSION,
+        quality: Int = JPEG_QUALITY,
+    ): String = Base64.encodeToString(toJpegBytes(context, uri, maxDimension, quality), Base64.NO_WRAP)
 
     private fun readExifOrientation(context: Context, uri: Uri): Int =
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -83,10 +92,10 @@ object ImageProcessor {
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
-    private fun downscaleIfNeeded(bitmap: Bitmap): Bitmap {
+    private fun downscaleIfNeeded(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val maxDim = maxOf(bitmap.width, bitmap.height)
-        if (maxDim <= MAX_DIMENSION) return bitmap
-        val scale = MAX_DIMENSION.toFloat() / maxDim
+        if (maxDim <= maxDimension) return bitmap
+        val scale = maxDimension.toFloat() / maxDim
         val newWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
         val newHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)

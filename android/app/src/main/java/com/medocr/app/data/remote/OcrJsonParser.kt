@@ -28,7 +28,7 @@ object OcrJsonParser {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     fun parse(rawText: String): OcrResult {
-        val cleaned = stripMarkdownFences(rawText)
+        val cleaned = extractJson(rawText)
         return try {
             val root = json.parseToJsonElement(cleaned).jsonObject
             val groupsJson = root["date_groups"]?.jsonArrayOrNull()
@@ -43,6 +43,23 @@ object OcrJsonParser {
         } catch (e: Exception) {
             OcrResult(error = "Failed to parse OCR response as JSON: ${e.message}. Raw: ${cleaned.take(300)}")
         }
+    }
+
+    /**
+     * Reasoning models (e.g. Groq's qwen3.6-27b) can prefix — or, if cut off mid-thought,
+     * entirely replace — the JSON answer with a `<think>...</think>` block. Strip that,
+     * then markdown fences, then fall back to slicing out the outermost `{ ... }` in case
+     * the model still wrapped the JSON in prose.
+     */
+    private fun extractJson(text: String): String {
+        var t = text.trim()
+        t = t.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+        t = stripMarkdownFences(t)
+        if (t.startsWith("{")) return t
+
+        val start = t.indexOf('{')
+        val end = t.lastIndexOf('}')
+        return if (start != -1 && end != -1 && end > start) t.substring(start, end + 1) else t
     }
 
     private fun stripMarkdownFences(text: String): String {

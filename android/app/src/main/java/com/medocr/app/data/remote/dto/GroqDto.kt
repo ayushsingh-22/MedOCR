@@ -8,7 +8,11 @@ data class GroqRequest(
     val model: String,
     val messages: List<GroqMessage>,
     val temperature: Double = 0.1,
-    @SerialName("max_tokens") val maxTokens: Int = 4096,
+    // qwen3.6-27b is a reasoning model — "hidden" suppresses the <think> block so only
+    // the final JSON answer comes back, and the higher token budget leaves room for the
+    // reasoning tokens it burns internally before that answer is produced.
+    @SerialName("max_tokens") val maxTokens: Int = 8192,
+    @SerialName("reasoning_format") val reasoningFormat: String = "hidden",
 )
 
 @Serializable

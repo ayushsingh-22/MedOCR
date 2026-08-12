@@ -9,6 +9,7 @@ import com.medocr.app.data.remote.GroqApi
 import com.medocr.app.data.remote.LlamaParseApi
 import com.medocr.app.data.remote.OcrJsonParser
 import com.medocr.app.data.remote.OcrPrompt
+import com.medocr.app.data.remote.dto.GEMINI_VISION_MODELS
 import com.medocr.app.data.remote.dto.GROQ_VISION_MODELS
 import com.medocr.app.data.remote.dto.GeminiContent
 import com.medocr.app.data.remote.dto.GeminiInlineData
@@ -25,9 +26,13 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.HttpException
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** (maxDimension, JPEG quality) pairs tried in order — see [OcrRepositoryImpl.callGroqWithImageRetry]. */
+private val ImageEncodingTiers = listOf(2000 to 92, 1400 to 85, 1000 to 78)
 
 @Singleton
 class OcrRepositoryImpl @Inject constructor(
@@ -85,42 +90,22 @@ class OcrRepositoryImpl @Inject constructor(
 
     private suspend fun analyzeWithGemini(imageUri: Uri, apiKey: String): OcrResult {
         val base64 = ImageProcessor.toBase64(context, imageUri)
-        val request = GeminiRequest(
-            contents = listOf(
-                GeminiContent(
-                    parts = listOf(
-                        GeminiPart(text = OcrPrompt.TEXT),
-                        GeminiPart(inlineData = GeminiInlineData(mimeType = "image/jpeg", data = base64)),
-                    ),
-                ),
+        return generateWithGeminiFallback(
+            apiKey,
+            listOf(
+                GeminiPart(text = OcrPrompt.TEXT),
+                GeminiPart(inlineData = GeminiInlineData(mimeType = "image/jpeg", data = base64)),
             ),
         )
-        val response = geminiApi.generateContent(GeminiApi.MODEL, apiKey, request)
-        val text = response.extractedText()
-            ?: return OcrResult(error = response.error?.message ?: "Empty response from Gemini.")
-        return OcrJsonParser.parse(text)
     }
 
-    private suspend fun analyzeWithGroq(imageUri: Uri, apiKey: String): OcrResult {
-        val base64 = ImageProcessor.toBase64(context, imageUri)
-        val dataUrl = "data:image/jpeg;base64,$base64"
+    /** Tries each model in [GEMINI_VISION_MODELS] in order — mirrors [analyzeWithGroq]'s fallback loop. */
+    private suspend fun generateWithGeminiFallback(apiKey: String, parts: List<GeminiPart>): OcrResult {
         val errors = mutableListOf<String>()
-
-        for (model in GROQ_VISION_MODELS) {
+        for (model in GEMINI_VISION_MODELS) {
             try {
-                val request = GroqRequest(
-                    model = model,
-                    messages = listOf(
-                        GroqMessage(
-                            role = "user",
-                            content = listOf(
-                                GroqContentPart(type = "text", text = OcrPrompt.TEXT),
-                                GroqContentPart(type = "image_url", imageUrl = GroqImageUrl(dataUrl)),
-                            ),
-                        ),
-                    ),
-                )
-                val response = groqApi.chatCompletion("Bearer $apiKey", request)
+                val request = GeminiRequest(contents = listOf(GeminiContent(parts = parts)))
+                val response = geminiApi.generateContent(model, apiKey, request)
                 val text = response.extractedText()
                     ?: throw IllegalStateException(response.error?.message ?: "empty response")
                 val result = OcrJsonParser.parse(text)
@@ -130,7 +115,58 @@ class OcrRepositoryImpl @Inject constructor(
                 errors.add("[$model] ${e.message}")
             }
         }
+        return OcrResult(error = "All Gemini models failed.\n${errors.joinToString("\n")}")
+    }
+
+    private suspend fun analyzeWithGroq(imageUri: Uri, apiKey: String): OcrResult {
+        val errors = mutableListOf<String>()
+        for (model in GROQ_VISION_MODELS) {
+            try {
+                val result = callGroqWithImageRetry(model, imageUri, apiKey)
+                if (result.error == null) return result.copy(modelUsed = model)
+                errors.add("[$model] ${result.error}")
+            } catch (e: Exception) {
+                errors.add("[$model] ${e.message}")
+            }
+        }
         return OcrResult(error = "All Groq models failed.\n${errors.joinToString("\n")}")
+    }
+
+    /**
+     * Groq's edge has rejected some inline base64 image payloads with HTTP 413 well under
+     * the documented 20MB request limit. Re-encode at a smaller size/quality and retry before
+     * giving up on this model — [ImageEncodingTiers] goes from full quality down to aggressively
+     * compressed.
+     */
+    private suspend fun callGroqWithImageRetry(model: String, imageUri: Uri, apiKey: String): OcrResult {
+        ImageEncodingTiers.forEachIndexed { index, (maxDim, quality) ->
+            try {
+                val base64 = ImageProcessor.toBase64(context, imageUri, maxDim, quality)
+                val request = GroqRequest(
+                    model = model,
+                    messages = listOf(
+                        GroqMessage(
+                            role = "user",
+                            content = listOf(
+                                GroqContentPart(type = "text", text = OcrPrompt.TEXT),
+                                GroqContentPart(
+                                    type = "image_url",
+                                    imageUrl = GroqImageUrl("data:image/jpeg;base64,$base64"),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+                val response = groqApi.chatCompletion("Bearer $apiKey", request)
+                val text = response.extractedText()
+                    ?: throw IllegalStateException(response.error?.message ?: "empty response")
+                return OcrJsonParser.parse(text)
+            } catch (e: HttpException) {
+                if (e.code() != 413 || index == ImageEncodingTiers.lastIndex) throw e
+                // else: retry with the next, smaller/lower-quality tier
+            }
+        }
+        error("unreachable")
     }
 
     private suspend fun analyzeWithLlamaParse(
@@ -196,17 +232,14 @@ class OcrRepositoryImpl @Inject constructor(
         if (direct.error == null && direct.dateGroups.isNotEmpty()) return direct.copy(modelUsed = "llamaparse")
 
         if (!geminiFallbackApiKey.isNullOrBlank()) {
-            return try {
-                val prompt = OcrPrompt.TEXT +
-                    "\n\nThe following is the raw OCR text already extracted from the image. " +
-                    "Do NOT describe an image — use only this text:\n\n$rawText"
-                val request = GeminiRequest(contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))))
-                val response = geminiApi.generateContent(GeminiApi.MODEL, geminiFallbackApiKey, request)
-                val text = response.extractedText()
-                    ?: return OcrResult(error = "LlamaParse extracted text but Gemini re-format returned nothing.")
-                OcrJsonParser.parse(text).copy(modelUsed = "llamaparse+gemini")
-            } catch (e: Exception) {
-                OcrResult(error = "LlamaParse extracted text but Gemini re-format failed: ${e.message}. Raw: ${rawText.take(400)}")
+            val prompt = OcrPrompt.TEXT +
+                "\n\nThe following is the raw OCR text already extracted from the image. " +
+                "Do NOT describe an image — use only this text:\n\n$rawText"
+            val result = generateWithGeminiFallback(geminiFallbackApiKey, listOf(GeminiPart(text = prompt)))
+            return if (result.error != null) {
+                OcrResult(error = "LlamaParse extracted text but Gemini re-format failed: ${result.error}. Raw: ${rawText.take(400)}")
+            } else {
+                result.copy(modelUsed = "llamaparse+${result.modelUsed}")
             }
         }
 

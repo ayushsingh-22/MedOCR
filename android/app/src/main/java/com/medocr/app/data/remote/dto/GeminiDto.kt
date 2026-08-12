@@ -45,3 +45,14 @@ data class GeminiCandidate(val content: GeminiContent? = null)
 
 @Serializable
 data class GeminiError(val message: String? = null)
+
+/**
+ * Vision-capable models tried in order — next one is used if the current one fails.
+ * `gemini-2.0-flash` was retired by Google on 2026-03-31 (source of the HTTP 404s);
+ * these are its currently supported multimodal replacements.
+ */
+val GEMINI_VISION_MODELS = listOf(
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-1.5-flash",
+)
