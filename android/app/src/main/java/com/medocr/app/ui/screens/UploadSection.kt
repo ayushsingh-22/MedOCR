@@ -1,12 +1,8 @@
 package com.medocr.app.ui.screens
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.OpenableColumns
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,9 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -35,10 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,14 +39,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.medocr.app.data.model.Provider
 import com.medocr.app.ui.components.StepCard
 import com.medocr.app.ui.main.BatchProgress
 import com.medocr.app.ui.main.SelectedImage
-import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -71,19 +63,14 @@ fun UploadSection(
 ) {
     val context = LocalContext.current
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-        if (uris.isNotEmpty()) onImagesPicked(uris.map { SelectedImage(it, displayNameFor(context, it)) })
-    }
-    val launchGallery = {
-        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    }
-    val launchCamera = rememberCameraCapture { uri ->
-        onImagesPicked(listOf(SelectedImage(uri, "Camera photo")))
-    }
+    // ML Kit Document Scanner handles both camera capture and gallery import in one flow,
+    // auto-cropping/deskewing/enhancing the page before it ever reaches our OCR pipeline —
+    // so a gallery-picked photo gets the same quality boost as a freshly captured one.
+    val launchScanner = rememberDocumentScanner { images -> onImagesPicked(images) }
 
     StepCard(step = 3, title = "Upload Images", subtitle = "Photos of handwritten medical test lists", modifier = modifier) {
         if (selectedImages.isEmpty()) {
-            EmptyUploadZone(onGalleryClick = launchGallery, onCameraClick = launchCamera)
+            EmptyUploadZone(onScanClick = launchScanner)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ThumbnailGallery(images = selectedImages, onRemove = onRemoveImage)
@@ -94,8 +81,7 @@ fun UploadSection(
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(end = 4.dp).align(Alignment.CenterVertically),
                     )
-                    OutlinedButton(onClick = launchGallery, enabled = !isAnalyzing) { Text("🖼️ Add files") }
-                    OutlinedButton(onClick = launchCamera, enabled = !isAnalyzing) { Text("📷 Camera") }
+                    OutlinedButton(onClick = launchScanner, enabled = !isAnalyzing) { Text("📷 Scan / Add images") }
                     OutlinedButton(onClick = onClearAll, enabled = !isAnalyzing) { Text("✕ Clear all") }
                 }
 
@@ -121,7 +107,7 @@ fun UploadSection(
 }
 
 @Composable
-private fun EmptyUploadZone(onGalleryClick: () -> Unit, onCameraClick: () -> Unit) {
+private fun EmptyUploadZone(onScanClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -132,18 +118,14 @@ private fun EmptyUploadZone(onGalleryClick: () -> Unit, onCameraClick: () -> Uni
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Drop images here or choose below", style = MaterialTheme.typography.titleSmall)
-        Text("PNG, JPEG, WEBP · Max 16 MB each", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Filled.DocumentScanner, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Scan a page or import from your gallery", style = MaterialTheme.typography.titleSmall)
+        Text("Auto-cropped and enhanced before upload", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
-            Button(onClick = onGalleryClick) {
-                Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("  Gallery / Files")
-            }
-            OutlinedButton(onClick = onCameraClick) {
-                Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("  Camera")
+            Button(onClick = onScanClick) {
+                Icon(Icons.Filled.DocumentScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("  Scan / Add images")
             }
         }
     }
@@ -200,46 +182,38 @@ private fun BatchProgressBar(progress: BatchProgress) {
     }
 }
 
-private fun displayNameFor(context: Context, uri: Uri): String {
-    var name: String? = null
-    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (nameIndex >= 0 && cursor.moveToFirst()) name = cursor.getString(nameIndex)
-    }
-    return name ?: uri.lastPathSegment ?: "image.jpg"
-}
-
-private fun createImageCaptureUri(context: Context): Uri {
-    val dir = File(context.cacheDir, "images").apply { mkdirs() }
-    val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-}
-
+/**
+ * Launches ML Kit's Document Scanner (Google Play services) for both capture and gallery
+ * import — it auto-detects page edges, corrects perspective/skew, and enhances contrast
+ * before handing back JPEG page(s), so the rest of the pipeline always gets a clean scan
+ * regardless of source.
+ */
 @Composable
-private fun rememberCameraCapture(onCaptured: (Uri) -> Unit): () -> Unit {
+private fun rememberDocumentScanner(onScanned: (List<SelectedImage>) -> Unit): () -> Unit {
     val context = LocalContext.current
-    var pendingUri by remember { mutableStateOf<Uri?>(null) }
-
-    val takePictureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) pendingUri?.let(onCaptured)
-        pendingUri = null
+    val scanner = remember {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit(10)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+        GmsDocumentScanning.getClient(options)
     }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
-            val uri = createImageCaptureUri(context)
-            pendingUri = uri
-            takePictureLauncher.launch(uri)
+    val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val scanResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data) ?: return@rememberLauncherForActivityResult
+        val images = scanResult.pages.orEmpty().mapIndexed { index, page ->
+            SelectedImage(page.imageUri, "Scan ${index + 1}")
         }
+        if (images.isNotEmpty()) onScanned(images)
     }
 
     return {
-        val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        if (hasPermission) {
-            val uri = createImageCaptureUri(context)
-            pendingUri = uri
-            takePictureLauncher.launch(uri)
-        } else {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
+        val activity = context as Activity
+        scanner.getStartScanIntent(activity)
+            .addOnSuccessListener { intentSender ->
+                scanLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+            }
     }
 }

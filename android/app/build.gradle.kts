@@ -83,6 +83,7 @@ dependencies {
     implementation(libs.coil.compose)
 
     implementation(libs.play.services.auth)
+    implementation(libs.mlkit.document.scanner)
 
     implementation(libs.exifinterface)
 }
