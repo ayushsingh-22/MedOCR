@@ -25,7 +25,11 @@ class SheetsRepositoryImpl @Inject constructor(
         dateGroups: List<DateGroup>,
     ): Result<AppendResult> = try {
         val bearer = "Bearer $accessToken"
-        ensureHeaderRow(bearer, spreadsheetId, sheetName)
+        // Trim to guard against stray whitespace from copy-pasted IDs/names, which would
+        // otherwise be sent as a literal %20 and make Google return a 404 "not found".
+        val trimmedSpreadsheetId = spreadsheetId.trim()
+        val trimmedSheetName = sheetName.trim()
+        ensureHeaderRow(bearer, trimmedSpreadsheetId, trimmedSheetName)
 
         val rows = buildRows(dateGroups)
         if (rows.isEmpty()) {
@@ -33,8 +37,8 @@ class SheetsRepositoryImpl @Inject constructor(
         } else {
             val response = sheetsApi.appendValues(
                 bearerToken = bearer,
-                spreadsheetId = spreadsheetId,
-                range = "$sheetName!A:D",
+                spreadsheetId = trimmedSpreadsheetId,
+                range = "$trimmedSheetName!A:D",
                 body = SheetsValuesBody(rows),
             )
             Result.success(
@@ -45,7 +49,11 @@ class SheetsRepositoryImpl @Inject constructor(
             )
         }
     } catch (e: HttpException) {
-        Result.failure(IllegalStateException("Google Sheets API error: ${e.message()}"))
+        if (e.code() == 401) {
+            Result.failure(ExpiredSheetsTokenException())
+        } else {
+            Result.failure(IllegalStateException("Google Sheets API error: ${e.message()}"))
+        }
     } catch (e: Exception) {
         Result.failure(IllegalStateException("Unexpected error: ${e.message}"))
     }

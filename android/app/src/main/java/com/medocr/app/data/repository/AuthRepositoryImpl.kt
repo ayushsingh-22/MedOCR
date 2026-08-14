@@ -33,8 +33,14 @@ class AuthRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : AuthRepository {
 
+    companion object {
+        // Access tokens are short-lived. Refresh a little before the typical 1h expiry.
+        private const val TOKEN_MAX_AGE_MS = 50 * 60 * 1000L
+    }
+
     private val authorizationClient by lazy { Identity.getAuthorizationClient(context) }
     private var cachedAccessToken: String? = null
+    private var cachedAtMs: Long = 0L
 
     private val _authState = MutableStateFlow(AuthState.UNKNOWN)
     override val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -48,6 +54,7 @@ class AuthRepositoryImpl @Inject constructor(
         val result = authorizationClient.authorize(buildRequest()).await()
         processResult(result)
     } catch (e: Exception) {
+        clearCachedToken()
         _authState.value = AuthState.DISCONNECTED
         AuthOutcome.Failed(friendlyMessage(e))
     }
@@ -56,6 +63,7 @@ class AuthRepositoryImpl @Inject constructor(
         val result = authorizationClient.getAuthorizationResultFromIntent(data)
         processResult(result)
     } catch (e: Exception) {
+        clearCachedToken()
         _authState.value = AuthState.DISCONNECTED
         AuthOutcome.Failed(friendlyMessage(e))
     }
@@ -84,6 +92,7 @@ class AuthRepositoryImpl @Inject constructor(
         return when {
             token != null -> {
                 cachedAccessToken = token
+                cachedAtMs = System.currentTimeMillis()
                 _authState.value = AuthState.CONNECTED
                 AuthOutcome.Authorized(token)
             }
@@ -92,19 +101,28 @@ class AuthRepositoryImpl @Inject constructor(
                 AuthOutcome.ResolutionRequired(request)
             }
             else -> {
+                clearCachedToken()
                 _authState.value = AuthState.DISCONNECTED
                 AuthOutcome.Failed("Google did not return an access token or a consent screen.")
             }
         }
     }
 
-    override suspend fun getAccessToken(): String? {
-        cachedAccessToken?.let { return it }
+    override suspend fun getAccessToken(forceRefresh: Boolean): String? {
+        val cacheIsFresh = (System.currentTimeMillis() - cachedAtMs) < TOKEN_MAX_AGE_MS
+        if (!forceRefresh && cacheIsFresh) {
+            cachedAccessToken?.let { return it }
+        }
         return (tryAuthorize() as? AuthOutcome.Authorized)?.accessToken
     }
 
     override fun signOut() {
-        cachedAccessToken = null
+        clearCachedToken()
         _authState.value = AuthState.DISCONNECTED
+    }
+
+    private fun clearCachedToken() {
+        cachedAccessToken = null
+        cachedAtMs = 0L
     }
 }

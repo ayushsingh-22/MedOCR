@@ -11,6 +11,7 @@ import com.medocr.app.data.model.PatientRecord
 import com.medocr.app.data.model.Provider
 import com.medocr.app.data.repository.AuthOutcome
 import com.medocr.app.data.repository.AuthRepository
+import com.medocr.app.data.repository.ExpiredSheetsTokenException
 import com.medocr.app.data.repository.OcrRepository
 import com.medocr.app.data.repository.SheetsRepository
 import com.medocr.app.util.DateUtils
@@ -114,8 +115,9 @@ class MainViewModel @Inject constructor(
     }
 
     fun onSheetIdChanged(value: String) {
-        _state.update { it.copy(sheetId = value) }
-        viewModelScope.launch { settingsDataStore.setSheetId(value) }
+        val trimmed = value.trim()
+        _state.update { it.copy(sheetId = trimmed) }
+        viewModelScope.launch { settingsDataStore.setSheetId(trimmed) }
     }
 
     fun onSheetNameChanged(value: String) {
@@ -306,14 +308,21 @@ class MainViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.update { it.copy(isAppending = true) }
-            val token = authRepository.getAccessToken()
-            if (token == null) {
+            val sheetName = current.sheetName.ifBlank { "Sheet1" }
+            val firstToken = authRepository.getAccessToken()
+            if (firstToken == null) {
                 _state.update { it.copy(isAppending = false) }
                 emitToast("Not authenticated. Please connect your Google Account first.", ToastType.ERROR)
                 return@launch
             }
 
-            val result = sheetsRepository.appendPatientRows(token, current.sheetId, current.sheetName.ifBlank { "Sheet1" }, payload)
+            val firstAttempt = sheetsRepository.appendPatientRows(firstToken, current.sheetId, sheetName, payload)
+            val result = firstAttempt.recoverCatching { error ->
+                if (error !is ExpiredSheetsTokenException) throw error
+                val refreshedToken = authRepository.getAccessToken(forceRefresh = true)
+                    ?: throw IllegalStateException("Google session expired. Please reconnect your account.")
+                sheetsRepository.appendPatientRows(refreshedToken, current.sheetId, sheetName, payload).getOrThrow()
+            }
             _state.update { it.copy(isAppending = false) }
 
             result.fold(

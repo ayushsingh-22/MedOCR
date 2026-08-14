@@ -136,7 +136,8 @@ separate web/PWA version of MedOCR; it has no bearing on the Android app.
 - Fuzzy test-name normalization against the same known-test vocabulary
   (`testName.json` → `TestNameMatcher.KNOWN_TESTS`)
 - Append to Sheets with the same row format (`Date | Name AGE/GENDER | Test | Amount`,
-  blank separator row per date group, header row auto-created)
+  blank separator row per date group, header row auto-created) and automatic
+  silent token refresh if the short-lived access token expires
 - Light / Dark / System theme toggle, persisted across launches
 - Camera capture + gallery multi-select (Android Photo Picker)
 

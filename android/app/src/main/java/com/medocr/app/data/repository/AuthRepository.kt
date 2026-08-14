@@ -21,8 +21,11 @@ interface AuthRepository {
     /** Call from the launcher's callback after the user completes (or cancels) the consent screen. */
     fun handleAuthorizationResult(data: Intent?): AuthOutcome
 
-    /** Cached or freshly-authorized access token, or null if the user has never connected. */
-    suspend fun getAccessToken(): String?
+    /**
+     * Cached or freshly-authorized access token, or null if the user has never connected.
+     * When [forceRefresh] is true, bypasses cache and asks Play Services for a fresh token.
+     */
+    suspend fun getAccessToken(forceRefresh: Boolean = false): String?
 
     fun signOut()
 }
